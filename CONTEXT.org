@@ -1,0 +1,84 @@
+#+TITLE: Knessy project context
+#+STARTUP: showall
+
+Per-project memory file for agents.
+Read it at the start of a session, and add decisions, conventions and findings as you work.
+Longer write-ups live in =agent-notes/=, see the index at the end.
+
+* What this is
+Knessy is a k9s-style Kubernetes interface for Emacs, written in Emacs Lisp.
+It shows resources in a =tabulated-list-mode= buffer, roughly like =kubectl get= does, but interactive.
+The goal is to be fast and useful for debugging and troubleshooting clusters at the user's workplace.
+The user is an inexperienced Emacs Lisp programmer, so flag footguns and explain non-obvious Elisp.
+
+* Conventions
+- All code is in top-level =.el= files, split by purpose, see the file map below.
+- Internal functions and variables are prefixed =knessy--=, user-facing ones =knessy-=.
+- Every file uses =lexical-binding: t=.
+- Package standards: the main file has the full header (summary, Author, Version, =Package-Requires=, Keywords, URL, GPL v3 or later notice, Emacs 31.1 minimum, Commentary, Code).
+  Every other file starts with =;;; name.el --- summary= and ends with =;;; name.el ends here=.
+  Every file requires the libraries it uses itself (=aio=, =asoc=, =cl-lib=, =dash=, =ht=, =s=, =transient=), and a new dependency also goes into =Package-Requires= and the README.
+  Entry points have =;;;###autoload=.
+- There is no =(comment ...)= macro in the code base, do not add one; it only ever existed in the author's own Emacs config.
+- Every function has a docstring that names its arguments in capitals and says what it returns.
+- Interactive actions are =transient= prefixes, opened from a key in =knessy-mode-map=.
+- Keep refactors small and focused, so the review scope stays manageable.
+- When adding or changing a user-facing =defcustom=, update =CUSTOMIZATION.md=, which contains the full list of options.
+  Do not change =README.md= for new customization options; it lists only the main options to keep it concise.
+- Do not edit =CHANGELOG.md= or generated files by hand.
+- Commit messages end with the Co-Authored-By line given by the session.
+
+* File map
+| File | Purpose |
+|------+---------|
+| =knessy.el= | Entrypoint: customization, buffer-local state, transients, selection of context/namespace/type/view, display pipeline, modes |
+| =knessy-env.el= | An "env" is the tuple that defines what a buffer shows; ring buffer of past envs and the history buffer |
+| =knessy-kubectl.el= | Builds and runs kubectl commands (sync and async) |
+| =knessy-process.el= | Process helpers: sentinels, filters, =knessy--shell-exec*= family |
+| =knessy-representation.el= | Parses kubectl table output into items and renders them |
+| =knessy-views.el= | =knessy-views=: per-resource-type table configs (calls, columns, widths, post-processing) |
+| =knessy-linked.el= | The synthetic =*LINKED*= resource type: graph of resources related to one resource |
+| =knessy-providers.el= | Links from nodes (or pods, via their node) to the provider page: EC2, Azure VM and Alibaba ECS consoles, metal via =knessy-metal-*= options, extensible via =knessy-node-url-functions= |
+| =knessy-port-forward.el= | Port forwarding transient and process handling |
+| =knessy-exec.el= | Shell into a pod, and start a debug container in a pod, via vterm or ghostel |
+| =knessy-options.el= | The =knessy= customization group and the options other files need at load time (the =*ALL-NS*= style strings), so that the files can be byte-compiled |
+| =knessy-cache.el= | TTL cache (nested hash tables) used for labels and similar |
+| =knessy-comparators.el=, =knessy-units.el=, =knessy-utils.el= | Sorting, unit conversion, small helpers |
+
+* Key concepts
+** Env
+=knessy--env= returns, in order: kubeconfig, context, namespace, resource type, label selectors, field selectors, view, linked root.
+Envs are compared with =equal=, pushed on a per-buffer ring on every display, and restored with =knessy--set-env=.
+** Buffer-local state
+Most state is buffer-local (=knessy--context=, =knessy--namespace=, =knessy--resource-type=, selectors, =knessy--data=).
+Code that needs it must run in the Knessy buffer.
+** Synthetic resource types
+=*ALL-NS*=, =*ALL-CLUSTER*= and =*LINKED*= are not real kubectl types.
+=knessy--kubectl-cmd= refuses to run with them; they must have a view that expands them.
+** Display pipeline
+=knessy--display2= pushes the env on the ring, then dispatches to =knessy--display-linked=, =knessy--display2-sync= or the async variant.
+The view for =(resource-type . view-name)= in =knessy-views= lists the kubectl calls, columns, widths and post-processing.
+=knessy--display2-common-part= merges call results, post-processes items, stores them in =knessy--data= and calls =knessy--repaint=.
+** Selecting the object at point
+=knessy--ids= returns the marked ids or the one at point.
+Ids are decoded with =knessy--id-ns=, =knessy--id-rt= and =knessy--id-name=.
+To check that an id is a pod: =(eq 'pod (ht-get knessy--resource-type-str->sym rt))=.
+
+* Testing
+Cluster for manual testing: context =k8s-local=, =KUBECONFIG=~/.kube/k8s-local=, a bare k3s cluster with no workloads.
+The user's real clusters use their own kubeconfig, not the test one; do not run mutating commands there without asking.
+There is no automated test suite.
+Syntax check without loading dependencies: read each form in batch Emacs.
+Byte-compiling in batch needs the dependencies (=s=, =dash=, =ht=, =asoc=, =transient=) on the load path.
+
+* Working in the live Emacs session
+The user runs knessy in a live Emacs, reachable through the Emacs MCP =eval-elisp= tool.
+To try a change, =load-file= the edited files there; do it only when asked.
+=defcustom= and =defvar= values do not reload once bound, see =agent-notes/gotchas.md=.
+
+* Decisions log
+
+* Notes index
+- =agent-notes/architecture.md=: how the pieces fit together
+- =agent-notes/shell-and-debug.md=: design of shell and debug container commands
+- =agent-notes/gotchas.md=: pitfalls found while working on the code
