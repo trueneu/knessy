@@ -1,6 +1,6 @@
-;;; TODO - write a proper emacs package header
+;;; TODO - write a proper emacs package header  -*- lexical-binding: t; -*-
 
-;; dependencies: emacs 28.1, s.el
+;; dependencies: emacs 28.1, s.el, transient
 
 (require 's)
 
@@ -18,6 +18,13 @@
     map)
   "Keymap for `knessy-mode'.")
 
+(defun knessy--expand-colons (s)
+  (s-join ":"
+    (let ((paths (s-split ":" s)))
+      (mapcar #'expand-file-name paths))))
+
+(defvar-local knessy--kubeconfig (knessy--expand-colons knessy-default-kubeconfig))
+
 (defun knessy--print-msg ()
   (interactive)
   (message "Hello world!"))
@@ -27,19 +34,9 @@
   ["description"
      ("a" "abcd" knessy--print-msg)])
 
-(defun knessy--expand-colons (s)
-  (s-join ":"
-    (let ((paths (s-split ":" s)))
-      (mapcar #'expand-file-name paths))))
-
-(defun knessy--setup-local-variables ()
-  (setq-local knessy--kubeconfig
-              (knessy--expand-colons knessy-default-kubeconfig)))
-
 (defun knessy ()
   (interactive)
-  (knessy-mode)
-  (knessy--setup-local-variables))
+  (knessy-mode))
 
 (define-derived-mode knessy-mode tabulated-list-mode "Knessy"
   "Mode for Knessy buffers."
