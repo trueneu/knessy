@@ -9,44 +9,57 @@
   (lambda (proc ev)
     (cond ((s-equals? ev "finished\n")
            (funcall f))
-          (t (message (format "Received event from process %s: %s"
-                              (process-name proc) ev))))))
+          (t (message (format "Received event from process %s, command \"%s\": %s"
+                              (process-name proc)
+                              (process-command proc)
+                              ev))))))
 
 (defun knessy--make-process-filter-to-buffer (buf)
   (lambda (proc string)
     (princ string buf)))
 
-(defun filter-to-table (proc string)
-  (let ((buf (get-buffer-create "bar")))
-    (with-current-buffer buf
-      (let ((lines (-remove #'s-blank? (s-lines string))))
-        (setq tabulated-list-entries
-              (knessy--expand-list-in-place
-               tabulated-list-entries
-               (mapcar (lambda (line)
-                        `(nil [,line]))
-                       lines))))
-      (tabulated-list-print))))
-
 (defun knessy--expand-list-in-place (orig extension)
   (dolist (elt extension orig)
     (push elt orig)))
 
-(defun knessy--shell-exec (cmd buf callback)
+(defun knessy--shell-exec-async2 (cmd buf buferr callback)
+  (let* ((process (make-process
+                   :name "knessy-shell-exec"
+                   :command (list "/bin/bash" "-c" cmd)
+                   :buffer buf
+                   :stderr buferr
+                   :filter (knessy--make-process-filter-to-buffer buf)
+                   :sentinel (knessy--make-callback-sentinel callback))))))
+
+(comment
+ (knessy--shell-exec-async2
+  "kubectl get pods -n kube-systemzzz"
+  (get-buffer-create "bar")
+  (get-buffer-create "baz")
+  (lambda () (message "I'm done"))))
+
+(defun knessy--shell-exec-async (cmd buf callback)
   (let* ((process (start-process-shell-command "knessy-shell-exec" nil cmd)))
     (set-process-filter process (knessy--make-process-filter-to-buffer buf))
     (set-process-sentinel process (knessy--make-callback-sentinel callback))))
 
-(comment
- (knessy--shell-exec "kubectl --context general-use-non-production get deployments -n airflow2-test --output name" (get-buffer-create "baz") (lambda () (message "FINISHED!")))
- (knessy--shell-exec "kubectl --context general-use-non-production get deployments -n airflow2-test" (get-buffer-create "baz") (lambda () (message "FINISHED!"))))
+(defun knessy--error-buf ()
+  "*Messages*")
 
-(let* ((buf (get-buffer-create "bar")))
-  (with-current-buffer buf
-    (tabulated-list-mode)
-    (setq tabulated-list-format
-          '[("NAME" 10 t . ())])
-    (setq tabulated-list-entries
-          '(('id1 ["abc"])
-            ('id2 ["def"])))
-    (tabulated-list-init-header)))
+(defun knessy--shell-exec (cmd buf)
+  (shell-command cmd buf (knessy--error-buf)))
+
+(comment
+ (knessy--shell-exec-async "kubectl --context general-use-non-production get deployments -n airflow2-test --output name" (get-buffer-create "baz") (lambda () (message "FINISHED!")))
+ (knessy--shell-exec-async "kubectl --context general-use-non-production get deployments -n airflow2-test" (get-buffer-create "baz") (lambda () (message "FINISHED!"))))
+
+(comment
+  (let* ((buf (get-buffer-create "bar")))
+    (with-current-buffer buf
+      (tabulated-list-mode)
+      (setq tabulated-list-format
+            '[("NAME" 10 t . ())])
+      (setq tabulated-list-entries
+            '(('id1 ["abc"])
+              ('id2 ["def"])))
+      (tabulated-list-init-header))))

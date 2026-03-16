@@ -14,7 +14,7 @@
 
 (defvar knessy-mode-map
   (let ((map (make-sparse-keymap)))
-    (define-key map (kbd "t") 'knessy-transient)
+    (define-key map (kbd "c") 'knessy-config)
     map)
   "Keymap for `knessy-mode'.")
 
@@ -25,14 +25,34 @@
 
 (defvar-local knessy--kubeconfig (knessy--expand-colons knessy-default-kubeconfig))
 
+;; TODO: all these should be customizable
+;; TODO: these should be set from the actual available resources,
+;;   or from history, not like this
+
+(defvar-local knessy--namespace
+  "default")
+(defvar-local knessy--context
+  "default")
+(defvar-local knessy--resource
+  "pods")
+
 (defun knessy--print-msg ()
   (interactive)
   (message "Hello world!"))
 
+(defun knessy--select-context ()
+  (interactive)
+  (setq knessy--context
+        (completing-read "Context: "
+                         (knessy--cache-contexts-read))))
+
 (transient-define-prefix
-  knessy-transient () "doc string"
-  ["description"
-     ("a" "abcd" knessy--print-msg)])
+  knessy-config () "doc string"
+  ["Configure"
+     ("r" "resource" knessy--print-msg)
+     ("n" "namespace" knessy--print-msg)
+     ("c" "context" knessy--select-context)
+     ("f" "config-file" knessy--print-msg)])
 
 (defun knessy ()
   (interactive)
@@ -45,6 +65,7 @@
   (setq mode-name "Knessy")
   (setq major-mode 'knessy-mode)
   (use-local-map knessy-mode-map)
+  (knessy--caches-populate-async)
   (run-mode-hooks 'knessy-mode-hook))
 
 (provide 'knessy)

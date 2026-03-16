@@ -2,7 +2,8 @@
 
 ;; dependencies: dash, asoc, ht, s
 
-;; TODO: not local?..
+;; TODO: not local?.. it probably could be: just not during the dev phase, it's inconvenient
+;; TODO: could be needed to distinct between output buffers, but maybe not?
 (defvar knessy--columns-max-width
   (ht)
   "Holds maximum width for any given column")
@@ -10,13 +11,18 @@
 (defun knessy--reset-columns-max-width ()
   (ht-clear knessy--columns-max-width))
 
-(defun knessy--update-columns-max-width (k v)
+(defun knessy--debug-print-ht (table)
+  (dolist (item (ht-items table))
+    (princ item)))
+
+(defun knessy--update-columns-max-width (k value)
   (ht-update-with!
    knessy--columns-max-width
    k
    (lambda (current)
-     (max current (length v)))
-   0))
+     (max current (length value)))
+   ;; the default is just the length of the column name itself
+   (length k)))
 
 (cl-defun knessy--parse-table-kubectl-output
     (buf &optional headers (pre-process-ht (ht)) (post-process-ht (ht)))
@@ -102,12 +108,9 @@ Specify empty hashtable if no post-processing is desired.
                                ;; update max-column-width
                                (knessy--update-columns-max-width k v-new)
                                (cons k v-new)))
-                            item))))
-      (forward-line 1)))
-  items-ht)
-
-;; TODO: debug why knessy--update-columns-max-width fails
-;; TODO: make a debug-hashtable-print function
+                            item)))
+        (forward-line 1)))
+    items-ht))
 
 (comment
  (knessy--parse-table-kubectl-output
@@ -145,6 +148,70 @@ Specify empty hashtable if no post-processing is desired.
         (1 '((3 . 4)))))
    h))
 
-(defun knessy--make-tablist (columns items))
+;; TODO: this is where we'd inject the comparators
+(defun knessy--make-tablist-format (columns)
+  (apply
+   #'vector
+   (mapcar
+    (lambda (column)
+      (list column
+            (+ 5 (ht-get knessy--columns-max-width column))
+            t))
+    columns)))
+
+(defun knessy--make-tablist-entries (columns items)
+  (mapcar
+   (lambda (item)
+     (let ((id (car item))
+           (alist (cadr item)))
+       (list
+        id
+        (apply
+         #'vector
+         (mapcar
+          (lambda (column)
+            (asoc-get alist column))
+          columns)))))
+   (ht-items items)))
+
+;; TODO: most likely this will be called in the target buffer already
+(defun knessy--make-tablist (columns items)
+  (let ((buf (get-buffer-create "knessy-table")))
+    (with-current-buffer buf
+      (tabulated-list-mode)
+      (setq tabulated-list-format (knessy--make-tablist-format columns))
+      (setq tabulated-list-entries (knessy--make-tablist-entries columns items))
+      (tabulated-list-init-header)
+      (tabulated-list-print))))
+
+(comment
+ (knessy--make-tablist '("NAME" "NAMESPACE") nil)
+ (setq knessy--columns-max-width
+       (ht ("NAME" 6)
+           ("NAMESPACE" 3)
+           ("VALUE" 10)))
+ (knessy--make-tablist
+  '("NAMESPACE" "NAME" "VALUE")
+  (ht ((cons "ns1" "obj1")
+       '(("NAME" . "obj1")
+         ("NAMESPACE" . "ns1")
+         ("VALUE" . "123")))
+      ((cons "ns1" "obj2")
+       '(("NAME" . "obj2")
+         ("NAMESPACE" . "ns1")
+         ("VALUE" . "4567")))))
+
+ (knessy--make-tablist-entries
+  '("VALUE" "NAME" "NAMESPACE")
+  (ht ((cons "ns1" "obj1")
+       '(("NAME" . "obj1")
+         ("NAMESPACE" . "ns1")
+         ("VALUE" . "123")))
+      ((cons "ns1" "obj2")
+       '(("NAME" . "obj2")
+         ("NAMESPACE" . "ns1")
+         ("VALUE" . "4567"))))))
+
+
 
 (provide 'knessy-representation)
