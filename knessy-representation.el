@@ -29,9 +29,12 @@
   "Parses buffer BUF of information that was output by a kubectl command,
 into a datastructure to be manipulated further down the road. The result looks
 like this:
-hash-table((ns . name) ((key1 . val1)
-                        (key2 . val2)
-                        ...))
+((:items . hash-table((ns . name) ((key1 . val1)
+                                  (key2 . val2)
+                                  ...)))
+ (:headers . ((:static . (...)
+              (:repeated . (...))))))
+
 BUF is the buffer with info present. It should only have output from one kubectl call.
 HEADERS is an alist of form ((:static . (COL1 COL2 ...))
                              (:repeated . (REPCOL1 REPCOL2 ...)))
@@ -71,7 +74,9 @@ Specify empty hashtable if no post-processing is desired.
                                (s-trim (thing-at-point 'line t))))
               (item (asoc-make))
               (name)
-              (namespace)
+              ;; TODO: here should be the check if kind is namespaced or not
+              (namespace knessy--namespace)
+              (kind knessy--kind)
               (accumulators (ht)))
 
           (dolist (pair (-zip-pair (-concat header-static
@@ -100,7 +105,7 @@ Specify empty hashtable if no post-processing is desired.
           (dolist (kv (ht-items accumulators))
             (asoc-put! item (car kv) (cadr kv)))
           ;; finally add it to the resulting hashtable
-          (ht-set items-ht (cons namespace name)
+          (ht-set items-ht (cons namespace (cons kind name))
                   ;; post-process just before adding
                   (asoc-map (lambda (k v)
                              (let* ((post-process-fn (ht-get post-process-ht k nil))
@@ -110,7 +115,9 @@ Specify empty hashtable if no post-processing is desired.
                                (cons k v-new)))
                             item)))
         (forward-line 1)))
-    items-ht))
+    `((:items . ,items-ht)
+      (:headers . ((:static . ,header-static)
+                   (:repeated . ,header-repeated))))))
 
 (comment
  (knessy--parse-table-kubectl-output
@@ -176,13 +183,10 @@ Specify empty hashtable if no post-processing is desired.
 
 ;; TODO: most likely this will be called in the target buffer already
 (defun knessy--make-tablist (columns items)
-  (let ((buf (get-buffer-create "knessy-table")))
-    (with-current-buffer buf
-      (tabulated-list-mode)
-      (setq tabulated-list-format (knessy--make-tablist-format columns))
-      (setq tabulated-list-entries (knessy--make-tablist-entries columns items))
-      (tabulated-list-init-header)
-      (tabulated-list-print))))
+  (setq tabulated-list-format (knessy--make-tablist-format columns))
+  (setq tabulated-list-entries (knessy--make-tablist-entries columns items))
+  (tabulated-list-init-header)
+  (tabulated-list-print))
 
 (comment
  (knessy--make-tablist '("NAME" "NAMESPACE") nil)
@@ -211,7 +215,5 @@ Specify empty hashtable if no post-processing is desired.
        '(("NAME" . "obj2")
          ("NAMESPACE" . "ns1")
          ("VALUE" . "4567"))))))
-
-
 
 (provide 'knessy-representation)

@@ -63,3 +63,5 @@
             '(('id1 ["abc"])
               ('id2 ["def"])))
       (tabulated-list-init-header))))
+
+(provide 'knessy-process)

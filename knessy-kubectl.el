@@ -4,7 +4,7 @@
   '()
   "Caches available contexts.")
 
-(defvar knessy--cache-resource-kinds
+(defvar knessy--cache-kinds
   (ht)
   "Caches available resource kinds.")
 
@@ -25,9 +25,7 @@
     new-cache))
 
 (defun knessy--cache-contexts-populate-sync ()
-  ;; TODO: this cries for a helper
-  ;; (kill-buffer "*knessy-cache-contexts*")
-  (let ((buf (get-buffer-create "*knessy-cache-contexts*")))
+  (let ((buf (knessy--get-empty-buffer "*knessy-cache-contexts*")))
     (knessy--shell-exec
      "kubectl config get-contexts --output name"
      buf)
@@ -42,7 +40,7 @@
 
 ;; TODO: finish this function
 (defun knessy--cache-namespaces-populate ()
-  (let ((buf (get-buffer-create "*knessy-cache-namespaces*")))
+  (let ((buf (knessy--get-empty-buffer "*knessy-cache-namespaces*")))
     (knessy--shell-exec
      "kubectl config get-contexts --output name"
      buf)
@@ -61,7 +59,7 @@
   (interactive)
   (setq knessy--cache-contexts '())
   (ht-clear knessy--cache-namespaces)
-  (ht-clear knessy--cache-resource-kinds))
+  (ht-clear knessy--cache-kinds))
 
 ;; TODO: things different between the two functions below are
 ;; buffer names
@@ -69,12 +67,9 @@
 ;; destinations
 (defun knessy--cache-namespaces-populate-async ()
   (dolist (ctx knessy--cache-contexts)
-    ; TODO: this REALLY cries for helper
-    ;; (kill-buffer (concat "*knessy-cache-namespaces-" ctx "*"))
-    ;; (kill-buffer (concat "*knessy-cache-namespaces-" ctx "-stderr*"))
-    (let ((buf (get-buffer-create
+    (let ((buf (knessy--get-empty-buffer
                 (concat "*knessy-cache-namespaces-" ctx "*")))
-          (buferr (get-buffer-create
+          (buferr (knessy--get-empty-buffer
                    (concat "*knessy-cache-namespaces-" ctx "-stderr*"))))
 
       (knessy--shell-exec-async2
@@ -90,11 +85,9 @@
 
 (defun knessy--cache-resource-kinds-populate-async ()
   (dolist (ctx knessy--cache-contexts)
-    ;; (kill-buffer (concat "*knessy-cache-resources-" ctx "*"))
-    ;; (kill-buffer (concat "*knessy-cache-resources-" ctx "-stderr*"))
-    (let ((buf (get-buffer-create
+    (let ((buf (knessy--get-empty-buffer
                 (concat "*knessy-cache-resources-" ctx "*")))
-          (buferr (get-buffer-create
+          (buferr (knessy--get-empty-buffer
                    (concat "*knessy-cache-resources-" ctx "-stderr*"))))
       (knessy--shell-exec-async2
        (concat
@@ -104,14 +97,15 @@
        buf
        buferr
        (lambda ()
-         (ht-set knessy--cache-resource-kinds ctx
+         (ht-set knessy--cache-kinds ctx
                  (knessy--read-buffer-kill buf)))))))
 
 (defun knessy--caches-populate-async ()
-  ;; (kill-buffer "*knessy-cache-contexts*")
-  ;; (kill-buffer "*knessy-cache-contexts-stderr*")
-  (let ((buf (get-buffer-create "*knessy-cache-contexts*"))
-        (buferr (get-buffer-create "*knessy-cache-contexts-stderr*")))
+  ;; should check here for cache freshness really, else
+  ;; we'll be issuing too many kubectl calls for each mode activation
+
+  (let ((buf (knessy--get-empty-buffer "*knessy-cache-contexts*"))
+        (buferr (knessy--get-empty-buffer "*knessy-cache-contexts-stderr*")))
     (knessy--shell-exec-async2
      "kubectl config get-contexts --output name"
      buf
@@ -126,11 +120,42 @@
 
 ;; TODO: what to do with clusters we couldn't log in to? like euid? (maybe redirect errors to a separate buffer with make-process)
 
+(defun knessy-caches-refresh ()
+  "Rebuild all the main caches."
+  (interactive)
+  (knessy-cache-clear)
+  (knessy--caches-populate-async))
+
+(defun knessy--kubectl-type->verb (type)
+  (cond ((eq type 'top) "top")
+        (t "get")))
+
+(comment
+ (knessy--kubectl-type->verb 'top))
+
+(defun knessy--kubectl-construct-display (spec)
+  (let ((type (asoc-get spec :type))
+        (verb (knessy--kubectl-type->verb type))
+        (format-type (asoc-get spec :format-type))
+        (format-spec (asoc-get spec :format-spec))
+        ;; TODO: finish these!
+        (selectors)
+        (field-selectors)))
+
+  ;; TODO: in-progress
+  (s-concat
+   knessy-kubectl
+   " --context "  knessy--context
+   " " verb
+   " " knessy--kind))
+
+
+
 (comment
  (knessy-cache-clear)
  knessy--cache-contexts
  knessy--cache-namespaces
- knessy--cache-resource-kinds
+ knessy--cache-kinds
  (knessy--caches-populate-async)
  (setenv "KUBECONFIG" "/home/pgu/.kube/ttd")
  (knessy--cache-contexts-populate-sync)
