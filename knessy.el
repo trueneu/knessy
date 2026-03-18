@@ -11,17 +11,17 @@
 (load "./knessy-kubectl.el")
 (load "./knessy-process.el")
 (load "./knessy-representation.el")
-(load "./knessy-tests.el")
 (load "./knessy-units.el")
 (load "./knessy-utils.el")
 
 (require 'knessy-kubectl)
 (require 'knessy-process)
 (require 'knessy-representation)
-(require 'knessy-tests)
 (require 'knessy-units)
 (require 'knessy-utils)
 
+(load "./knessy-tests.el")
+(require 'knessy-tests)
 
 (defgroup knessy nil "Customisation group for Knessy."
   :group 'extensions)
@@ -47,11 +47,6 @@
     (define-key map (kbd "d") 'knessy-do)
     map)
   "Keymap for `knessy-mode'.")
-
-(defun knessy--expand-colons (s)
-  (s-join ":"
-    (let ((paths (s-split ":" s)))
-      (mapcar #'expand-file-name paths))))
 
 (defvar-local knessy--kubeconfig (knessy--expand-colons knessy-default-kubeconfig))
 

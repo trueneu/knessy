@@ -95,6 +95,7 @@ Specify empty hashtable if no post-processing is desired.
                 ;; if key is "simple", put as is
                 ;; probably only add it if it's not name/namespace
                 (asoc-put! item key value)
+                ;; TODO: redefine kind here when the time comes
                 (cond ((s-equals? key "NAME")
                        (setq name value))
                       ;; TODO: if namespace is missing from the output, must grab "current" one
@@ -120,22 +121,36 @@ Specify empty hashtable if no post-processing is desired.
                    (:repeated . ,header-repeated))))))
 
 ;; TODO: this belongs to knessy-process really :)
-(cl-defun knessy--shell-exec-parse (cmd buf &optional headers (pre-process-ht (ht)) (post-process-ht (ht)))
-  (knessy--shell-exec cmd buf)
-  (knessy--parse-table-kubectl-output buf headers pre-process-ht post-process-ht))
+(cl-defun knessy--shell-exec-parse-async (cmd buf buferr &optional headers (pre-process-ht (ht)) (post-process-ht (ht)))
+  (let ((promise (aio-promise)))
+    (prog1 promise
+      (knessy--shell-exec-async2
+       cmd buf buferr
+       (lambda ()
+         (aio-resolve promise
+                      (knessy--parse-table-kubectl-output buf headers pre-process-ht post-process-ht)))))))
 
 ;; async read: https://github.com/Silex/docker.el/blob/master/docker-volume.el#L88-L92 , https://github.com/skeeto/emacs-aio/issues/1
 ;; https://github.com/skeeto/emacs-aio/issues/19
 (defun knessy--aio-shell-exec-parse ()
   (let ((promise (aio-promise)))
     (prog1 promise
-      (aio-resolve promise (lambda () (knessy--shell-exec-parse "sleep 3 ; kubectl get pods -n kube-system" (get-buffer-create "*test-call-and-parse*")))))))
+      (aio-resolve
+       promise
+       (lambda ()
+         (knessy--shell-exec-parse-async "sleep 3 ; kubectl get pods -n kube-system"
+                                         (get-buffer-create "*test-call-and-parse*")
+                                         (get-buffer-create "*test-call-and-parse-err*")))))))
 
 (aio-defun knessy--aio-display ()
   (let ((result (aio-await (knessy--aio-shell-exec-parse))))
-    result))
+    (princ result (get-buffer-create "*knessy-output*"))))
 
 (comment
+ (aio-wait-for (knessy--shell-exec-parse-async "sleep 3 ; kubectl get pods -n kube-system"
+                                                       (get-buffer-create "*test-call-and-parse*")
+                                                       (get-buffer-create "*test-call-and-parse-err*")))
+ (knessy--aio-display)
  (aio-wait-for (knessy--aio-display))
  (knessy--shell-exec-parse "kubectl get pods -n kube-system" (get-buffer-create "*test-call-and-parse*"))
  (knessy--parse-table-kubectl-output
