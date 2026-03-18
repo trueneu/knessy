@@ -36,6 +36,11 @@
   :type 'string
   :group 'knessy)
 
+(defcustom knessy-buffer-name "*knessy*"
+  "Default buffer name for Knessy."
+  :type 'string
+  :group 'knessy)
+
 (defcustom knessy-all-namespaces-string "*ALL*"
   "String depicting all namespaces, instead of a single one."
   :type 'string
@@ -45,12 +50,42 @@
   (let ((map (make-sparse-keymap)))
     (define-key map (kbd "c") 'knessy-config)
     (define-key map (kbd "d") 'knessy-do)
+    (define-key map (kbd "m") 'knessy-mark)
+    (define-key map (kbd "u") 'knessy-unmark)
+    (define-key map (kbd "M") 'knessy-mark-all)
+    (define-key map (kbd "U") 'knessy-unmark-all)
     map)
   "Keymap for `knessy-mode'.")
 
 (defvar-local knessy--kubeconfig (knessy--expand-colons knessy-default-kubeconfig))
 
 (defvar-local knessy--namespace-all? nil)
+
+(defun knessy-mark ()
+  (interactive)
+  (ht-set
+   knessy--marked
+   (tabulated-list-get-id)
+   t)
+  (knessy--repaint)
+  (forward-line))
+
+(defun knessy-mark-all ()
+  (interactive)
+  ;; by doing this based on tabulated-list-entries, we operate just
+  ;; on the entries that are actually visible
+  (dolist (entry tabulated-list-entries)
+    (let ((id (car entry)))
+      (ht-set knessy--marked id t)))
+  (knessy--repaint))
+
+(defun knessy-unmark-all ()
+  (interactive)
+  (dolist (entry tabulated-list-entries)
+    (let ((id (car entry)))
+      (ht-remove knessy--marked id)))
+  (knessy--repaint))
+
 
 ;; TODO: call this when changing a namespace
 (defun knessy--namespace-all?-update ()
@@ -86,13 +121,27 @@
      ("c" "context" knessy--select-context)
      ("f" "config-file" knessy--print-msg)])
 
+(defvar-local knessy--data nil
+  "Data that was received with the latest query.")
+
+(defvar knessy--marked (ht)
+  "Set of resource IDs that are marked (selected).")
+
+;; TODO: this will go as it's not modular enough
 (defun knessy--make-display-callback (buf)
   (lambda ()
-    (let* ((parsed (knessy--parse-table-kubectl-output buf))
-           (columns (-> parsed (asoc-get :headers) (asoc-get :static)))
-           (items (asoc-get parsed :items)))
-      (knessy--make-tablist columns items))))
+    (setq knessy--data (knessy--parse-table-kubectl-output buf))
+    (knessy--repaint)))
 
+
+(defun knessy--repaint ()
+  (let ((columns (-> knessy--data (asoc-get :headers) (asoc-get :static)))
+        (widths (-> knessy--data (asoc-get :headers) (asoc-get :widths)))
+        (items (asoc-get knessy--data :items)))
+    (knessy--make-tablist columns items widths)))
+
+;; TODO: make this display use aio for giggles!
+;; TODO: this function should be using the views definitions, and become generic enough for the future use.
 (defun knessy--display ()
   "Make kubectl calls and display the result."
   (interactive)
@@ -104,10 +153,35 @@
      buferr
      (knessy--make-display-callback buf))))
 
+;; generic display function arch:
+;; await on promises from N kubectl queries
+;; after that, consolidate the data:
+;; - match by IDs
+;; - merge the columns
+;; - run max on column widths
+;; - if ID is present in one map but not in another, drop the item altogether (race with some cluster events)
+;; - put the whole thing in a buffer-local variable for later manipulation
+
 (transient-define-prefix
   knessy-do () "doc string"
   ["Do"
      ("d" "display" knessy--display)])
+
+(defun knessy-get-buffer ()
+  (generate-new-buffer knessy-buffer-name))
+
+(defvar knessy-buffer-list nil
+  "The list of Knessy buffers.")
+
+;; TODO: add knessy-rename and knessy-list-buffers and maybe knessy-prev-next
+(defun knessy-new ()
+  "Create new knessy buffer."
+  (interactive)
+  (let* ((knessy-buffer (knessy-get-buffer)))
+    (setq knessy-buffer-list (nconc knessy-buffer-list (list knessy-buffer)))
+    (set-buffer knessy-buffer)
+    (knessy-mode)
+    (switch-to-buffer knessy-buffer)))
 
 (defun knessy ()
   (interactive)
@@ -121,12 +195,21 @@
   (setq major-mode 'knessy-mode)
   (use-local-map knessy-mode-map)
   (knessy--caches-populate-async)
+  ;; TODO: this adds a hook for every tablist mode revert?..
+  ;; TODO: in these functions that repaint stuff
+  (add-hook 'tabulated-list-revert-hook #'knessy--display)
   (run-mode-hooks 'knessy-mode-hook))
+
+;; TODO: next thing, implement data <-> display link to hash out the data architecture
 
 (add-hook
  'knessy-mode-hook
  (lambda ()
    (display-line-numbers-mode -1)))
+
+(comment
+ (remove-hook
+  'tabulated-list-mode-hook #'knessy--display))
 
 (provide 'knessy)
 ;;; knessy.el ends here

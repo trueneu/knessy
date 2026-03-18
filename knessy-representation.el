@@ -2,22 +2,13 @@
 
 ;; dependencies: dash, asoc, ht, s
 
-;; TODO: not local?.. it probably could be: just not during the dev phase, it's inconvenient
-;; TODO: could be needed to distinct between output buffers, but maybe not?
-(defvar knessy--columns-max-width
-  (ht)
-  "Holds maximum width for any given column")
-
-(defun knessy--reset-columns-max-width ()
-  (ht-clear knessy--columns-max-width))
-
 (defun knessy--debug-print-ht (table)
   (dolist (item (ht-items table))
     (princ item)))
 
-(defun knessy--update-columns-max-width (k value)
+(defun knessy--update-columns-max-width (table k value)
   (ht-update-with!
-   knessy--columns-max-width
+   table
    k
    (lambda (current)
      (max current (length value)))
@@ -33,7 +24,8 @@ like this:
                                   (key2 . val2)
                                   ...)))
  (:headers . ((:static . (...)
-              (:repeated . (...))))))
+              (:repeated . (...))
+              (:widths (ht (key1 width1) (key2 width2) ...))))))
 
 BUF is the buffer with info present. It should only have output from one kubectl call.
 HEADERS is an alist of form ((:static . (COL1 COL2 ...))
@@ -52,10 +44,10 @@ POST-PROCESS-HT is a hashtable of form (COL1 func)
 Every column specified will be modified by applying func to its value.
 Specify empty hashtable if no post-processing is desired.
 "
-  (knessy--reset-columns-max-width)
   (let ((header-static)
         (header-repeated)
-        (items-ht (ht)))
+        (items-ht (ht))
+        (widths-ht (ht)))
     (with-current-buffer buf
       (goto-char (point-min))
 
@@ -112,45 +104,19 @@ Specify empty hashtable if no post-processing is desired.
                              (let* ((post-process-fn (ht-get post-process-ht k nil))
                                     (v-new (if post-process-fn (funcall post-process-fn v) v)))
                                ;; update max-column-width
-                               (knessy--update-columns-max-width k v-new)
+                               (knessy--update-columns-max-width widths-ht k v-new)
                                (cons k v-new)))
                             item)))
         (forward-line 1)))
     `((:items . ,items-ht)
       (:headers . ((:static . ,header-static)
-                   (:repeated . ,header-repeated))))))
-
-;; TODO: this belongs to knessy-process really :)
-(cl-defun knessy--shell-exec-parse-async (cmd buf buferr &optional headers (pre-process-ht (ht)) (post-process-ht (ht)))
-  (let ((promise (aio-promise)))
-    (prog1 promise
-      (knessy--shell-exec-async2
-       cmd buf buferr
-       (lambda ()
-         (aio-resolve promise
-                      (knessy--parse-table-kubectl-output buf headers pre-process-ht post-process-ht)))))))
-
-;; async read: https://github.com/Silex/docker.el/blob/master/docker-volume.el#L88-L92 , https://github.com/skeeto/emacs-aio/issues/1
-;; https://github.com/skeeto/emacs-aio/issues/19
-(defun knessy--aio-shell-exec-parse ()
-  (let ((promise (aio-promise)))
-    (prog1 promise
-      (aio-resolve
-       promise
-       (lambda ()
-         (knessy--shell-exec-parse-async "sleep 3 ; kubectl get pods -n kube-system"
-                                         (get-buffer-create "*test-call-and-parse*")
-                                         (get-buffer-create "*test-call-and-parse-err*")))))))
-
-(aio-defun knessy--aio-display ()
-  (let ((result (aio-await (knessy--aio-shell-exec-parse))))
-    (princ result (get-buffer-create "*knessy-output*"))))
+                   (:repeated . ,header-repeated)
+                   (:widths . ,widths-ht))))))
 
 (comment
  (aio-wait-for (knessy--shell-exec-parse-async "sleep 3 ; kubectl get pods -n kube-system"
                                                        (get-buffer-create "*test-call-and-parse*")
                                                        (get-buffer-create "*test-call-and-parse-err*")))
- (knessy--aio-display)
  (aio-wait-for (knessy--aio-display))
  (knessy--shell-exec-parse "kubectl get pods -n kube-system" (get-buffer-create "*test-call-and-parse*"))
  (knessy--parse-table-kubectl-output
@@ -189,15 +155,21 @@ Specify empty hashtable if no post-processing is desired.
    h))
 
 ;; TODO: this is where we'd inject the comparators
-(defun knessy--make-tablist-format (columns)
+(defun knessy--make-tablist-format (columns widths)
   (apply
    #'vector
    (mapcar
     (lambda (column)
       (list column
-            (+ 5 (ht-get knessy--columns-max-width column))
+            (+ 5 (ht-get widths column))
             t))
     columns)))
+
+(defun knessy--propertize-name (id name)
+  (if (ht-get knessy--marked id nil)
+      ;; TODO: face should be customizable
+      (propertize name 'face 'dired-marked)
+    name))
 
 (defun knessy--make-tablist-entries (columns items)
   (mapcar
@@ -210,16 +182,21 @@ Specify empty hashtable if no post-processing is desired.
          #'vector
          (mapcar
           (lambda (column)
-            (asoc-get alist column))
+            ;; TODO: maybe extract this to a separate dispatch table of some sorts
+            (let ((value (asoc-get alist column)))
+              (cond
+               ((s-equals? "NAME" column)
+                (knessy--propertize-name id value))
+               (t value))))
           columns)))))
    (ht-items items)))
 
 ;; TODO: most likely this will be called in the target buffer already
-(defun knessy--make-tablist (columns items)
-  (setq tabulated-list-format (knessy--make-tablist-format columns))
+(defun knessy--make-tablist (columns items widths)
+  (setq tabulated-list-format (knessy--make-tablist-format columns widths))
   (setq tabulated-list-entries (knessy--make-tablist-entries columns items))
   (tabulated-list-init-header)
-  (tabulated-list-print))
+  (tabulated-list-print t t))
 
 (comment
  (knessy--make-tablist '("NAME" "NAMESPACE") nil)
