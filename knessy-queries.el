@@ -1,7 +1,8 @@
 ;; -*- lexical-binding: t; -*-
 
+;; TODO: make NAMESPACE hide-able (or force-appendable)
 (defcustom knessy-queries
-  (ht ("pods" `((:columns . ("NAMESPACE" "NAME" "STATUS" "READY"))
+  (ht ("pods" `((:columns . ("NAME" "STATUS" "READY"))
                 (:calls . (((:type . :custom-columns)
                             (:spec . "NAMESPACE:.metadata.namespace,NAME:.metadata.name"))
                            ((:type . :get-wide)))))))

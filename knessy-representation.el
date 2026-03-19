@@ -167,7 +167,7 @@ Specify empty hashtable if no post-processing is desired.
       (lambda (column)
         (prog1
           (list column
-                ;; TODO: this has to be customizable
+                ;; TODO: this 5 has to be customizable
                 (+ 5 (ht-get widths column))
                 (cond ((s-equals? "RESTARTS" column)
                        (knessy--make-comparator-restarts-time column-counter))
@@ -204,8 +204,24 @@ Specify empty hashtable if no post-processing is desired.
 
 ;; TODO: most likely this will be called in the target buffer already
 (defun knessy--make-tablist (columns items widths)
+  (princ "in make tablist\n")
+  (princ columns)
+  (princ "\n")
+  (princ widths)
+  (princ "\n")
+  (princ items)
+  (princ "\n")
   (setq tabulated-list-format (knessy--make-tablist-format columns widths))
+  (princ "made it!\n")
   (setq tabulated-list-entries (knessy--make-tablist-entries columns items))
+
+  (princ "tabulated-list-format\n")
+  (princ tabulated-list-format)
+  (princ "\n")
+  (princ "tabulated-list-entries\n")
+  (princ tabulated-list-entries)
+  (princ "\n")
+
   (tabulated-list-init-header)
   (tabulated-list-print t t))
 
