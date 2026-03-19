@@ -22,7 +22,7 @@
 (require 'knessy-units)
 (require 'knessy-utils)
 (require 'knessy-comparators)
-(require 'knessy-queries)
+(require 'knessy-views)
 
 (load "./knessy-tests.el")
 (require 'knessy-tests)
@@ -181,7 +181,45 @@ If omitted, use the current one (for synchronous calls)."
 ;; TODO: build a simple two-step view, like ordinary get + custom column, use it to test the above
 ;; TODO: make the display function use aio, to wait on multiple things in parallel
 
+
+(aio-defun knessy--perform-calls-async (calls)
+  (let ((promises '())
+        (resolved '()))
+    (dolist (call calls)
+      (let ((type (asoc-get call :type))
+            (buf (knessy--get-empty-buffer (generate-new-buffer-name "*knessy-aio-display*")))
+            (buferr (knessy--get-empty-buffer (generate-new-buffer-name "*knessy-aio-display-stderr*"))))
+        ;; TODO: clean this up and teach it various call types
+        ;; TODO: continue writing the function forming the cmd string probably
+        ;; TODO: dispatch table shouldn't depend on the exec style (sync/async), extract it
+        (let ((promise (cond ((eq :get-wide type)
+                              (knessy--shell-exec-aio "sleep 1 ; kubectl --context minikube -n kube-system get pods -o wide" buf buferr (lambda () (knessy--parse-table-kubectl-output buf))))
+                             ((eq :custom-columns type)
+                              (knessy--shell-exec-aio "sleep 1 ; kubectl --context minikube -n kube-system get pods" buf buferr (lambda () (knessy--parse-table-kubectl-output buf)))))))
+          (push promise promises))))
+    (aio-await (aio-all promises))
+    ;; all promises are resolved at this point, we can collect those
+    (dolist (promise promises)  ; for some reason, mapcar won't work here. Not a big deal though.
+      (push (aio-await promise) resolved))
+    resolved))
+
+(aio-defun knessy--perform-calls-sync (calls)
+  (let ((results '()))
+    (dolist (call calls)
+      (let ((type (asoc-get call :type))
+            (buf (knessy--get-empty-buffer (generate-new-buffer-name "*knessy-aio-display*")))
+            (buferr (knessy--get-empty-buffer (generate-new-buffer-name "*knessy-aio-display-stderr*"))))
+        (cond ((eq :get-wide type)
+               (knessy--shell-exec "sleep 1 ; kubectl --context minikube -n kube-system get pods -o wide" buf))
+              ((eq :custom-columns type)
+               (knessy--shell-exec "sleep 1 ; kubectl --context minikube -n kube-system get pods" buf)))
+        (push (knessy--parse-table-kubectl-output buf) results)))
+    results))
+
 ;; TODO: finish this!
+;; TODO: add appending NAMESPACE column before NAME if it's missing + not all-namespaces
+;; TODO: extract functions as much as possible -- for the thing to be re-usable in sync display as well
+;; TODO: write a sync counterpart
 (aio-defun knessy--display-aio ()
   "Make kubectl calls and display the result."
   (interactive)
@@ -190,11 +228,12 @@ If omitted, use the current one (for synchronous calls)."
     (let* ((knessy--kind "pods")
            (knessy--context "minikube")
            (knessy--namespace "kube-system"))
-      (let* ((query (ht-get knessy-queries knessy--kind
-                            `((:calls . (((:type . ,knessy-query-default-type)))))))
-             (calls (asoc-get query :calls))
+      (let* ((view (ht-get knessy-views knessy--kind
+                           `((:calls . (((:type . ,knessy-call-default-type)))))))
+             (calls (asoc-get view :calls))
              (promises '())
              (resolved '()))
+        ;; actually perform the queries
         (dolist (call calls)
           (let ((type (asoc-get call :type))
                 (buf (knessy--get-empty-buffer (generate-new-buffer-name "*knessy-aio-display*")))
@@ -202,7 +241,7 @@ If omitted, use the current one (for synchronous calls)."
             ;; TODO: clean this up and teach it various call types
             ;; TODO: continue writing the function forming the cmd string probably
             (let ((promise (cond ((eq :get-wide type)
-                                  (knessy--shell-exec-aio "sleep 1 ; kubectl --context minikube -n kube-system get pods" buf buferr (lambda () (knessy--parse-table-kubectl-output buf))))
+                                  (knessy--shell-exec-aio "sleep 1 ; kubectl --context minikube -n kube-system get pods -o wide" buf buferr (lambda () (knessy--parse-table-kubectl-output buf))))
                                  ((eq :custom-columns type)
                                   (knessy--shell-exec-aio "sleep 1 ; kubectl --context minikube -n kube-system get pods" buf buferr (lambda () (knessy--parse-table-kubectl-output buf)))))))
               (push promise promises))))
@@ -210,13 +249,15 @@ If omitted, use the current one (for synchronous calls)."
         ;; all promises are resolved at this point, we can collect those
         (dolist (promise promises)  ; for some reason, mapcar won't work here. Not a big deal though.
           (push (aio-await promise) resolved))
-        (let* ((columns (asoc-get query :columns nil))
+        (let* ((columns (asoc-get view :columns nil))
                (widths (ht))
                (items-calls (mapcar (lambda (x) (asoc-get x :items))
                                     resolved))
                (items-first (car items-calls))
                (items-rest (cdr items-calls)))
+          ;; setup columns + widths
           (dolist (parsed resolved)
+            ;; if the view misses columns, most likely it's a default view (so display whatever we got with default call)
             (unless columns
               (setq columns (-> parsed (asoc-get :headers) (asoc-get :static))))
             (dolist (item (ht-items (-> parsed (asoc-get :headers) (asoc-get :widths))))
@@ -224,12 +265,14 @@ If omitted, use the current one (for synchronous calls)."
                     (width (cadr item)))
                 (ht-set widths column (max (ht-get widths column 0)
                                            width)))))
-          ;; FIXME: this is atrocious
+          ;; setup items
           (apply #'knessy--merge-items items-first items-rest)
+          ;; set the rendering basis DS
           (setq knessy--data
                 `((:headers . ((:static . ,columns)
                                (:widths . ,widths)))
                   (:items . ,items-first)))
+          ;; paint!
           (knessy--repaint display-buf))))))
 
 (transient-define-prefix
