@@ -55,7 +55,6 @@
 
 ;; async read: https://github.com/Silex/docker.el/blob/master/docker-volume.el#L88-L92 , https://github.com/skeeto/emacs-aio/issues/1
 ;; https://github.com/skeeto/emacs-aio/issues/19
-;; TODO: maybe change the signature -- it's really an aio exec with a callback
 (cl-defun knessy--shell-exec-parse-async (cmd buf buferr &optional headers (pre-process-ht (ht)) (post-process-ht (ht)))
   (let ((promise (aio-promise)))
     (prog1 promise

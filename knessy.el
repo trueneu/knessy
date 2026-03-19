@@ -128,30 +128,35 @@
   "Set of resource IDs that are marked (selected).")
 
 ;; TODO: this will go as it's not modular enough
-(defun knessy--make-display-callback (buf)
+(defun knessy--make-display-callback (data-buf display-buf)
   (lambda ()
-    (setq knessy--data (knessy--parse-table-kubectl-output buf))
-    (knessy--repaint)))
+    (setq knessy--data (knessy--parse-table-kubectl-output data-buf))
+    (knessy--repaint display-buf)))
 
 
-(defun knessy--repaint ()
-  (let ((columns (-> knessy--data (asoc-get :headers) (asoc-get :static)))
-        (widths (-> knessy--data (asoc-get :headers) (asoc-get :widths)))
-        (items (asoc-get knessy--data :items)))
-    (knessy--make-tablist columns items widths)))
+(defun knessy--repaint (&optional buf)
+  "Repaint (or rather re-render the table).
+BUF is buffer with the table, must be in Knessy mode.
+If omitted, use the current one (for synchronous calls)."
+  (with-current-buffer (if buf buf (current-buffer))
+    (let ((columns (-> knessy--data (asoc-get :headers) (asoc-get :static)))
+          (widths (-> knessy--data (asoc-get :headers) (asoc-get :widths)))
+          (items (asoc-get knessy--data :items)))
+      (knessy--make-tablist columns items widths))))
 
 ;; TODO: make this display use aio for giggles!
 ;; TODO: this function should be using the views definitions, and become generic enough for the future use.
 (defun knessy--display ()
   "Make kubectl calls and display the result."
   (interactive)
-  (let* ((buf (knessy--get-empty-buffer "*knessy-display*"))
-         (buferr (knessy--get-empty-buffer "*knessy-display-stderr*")))
+  (let* ((display-buf (current-buffer))
+         (buf (knessy--get-empty-buffer (generate-new-buffer-name "*knessy-display*")))
+         (buferr (knessy--get-empty-buffer (generate-new-buffer-name "*knessy-display-stderr*"))))
     (knessy--shell-exec-async2
-     "kubectl --context vaf-ttd-kpop-01 -n adhoc-testing get pods"
+     "sleep 1 ; kubectl --context minikube -n kube-system get pods"
      buf
      buferr
-     (knessy--make-display-callback buf))))
+     (knessy--make-display-callback buf display-buf))))
 
 ;; generic display function arch:
 ;; await on promises from N kubectl queries
@@ -161,6 +166,9 @@
 ;; - run max on column widths
 ;; - if ID is present in one map but not in another, drop the item altogether (race with some cluster events)
 ;; - put the whole thing in a buffer-local variable for later manipulation
+
+;; TODO: build a simple two-step view, like ordinary get + custom column, use it to test the above
+;; TODO: make the display function use aio, to wait on multiple things in parallel
 
 (transient-define-prefix
   knessy-do () "doc string"

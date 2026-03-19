@@ -1,5 +1,6 @@
 ;; -*- lexical-binding: t; -*-
 
+;; TODO: maybe this helper is not needed with generate-new-buffer-name
 (defun knessy--get-empty-buffer (buffer-name)
   "Either kill an existing buffer with the name and create a new one, or just create it."
   (let ((buf (get-buffer buffer-name)))

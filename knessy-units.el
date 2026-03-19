@@ -14,6 +14,15 @@
                                               (Ki . 1024)
                                               (B . 1)))
 
+(defvar knessy--time-units-alist '(("s" . s)
+                                   ("m" . m)
+                                   ("h" . h)
+                                   ("d" . d)))
+(defvar knessy--time-unit-multipliers-alist `(("s" . 1)
+                                              ("m" . 60)
+                                              ("h" . ,(* 60 60))
+                                              ("d" . ,(* 60 60 24))))
+
 (defun knessy--appropriate-mult (bytes mults)
   "A function returning an appropriate size multiplier cons cell for given
 amount of bytes.
@@ -82,4 +91,40 @@ If either is null, or y == 0, return \"N/A\""
       "N/A"
     (substring-no-properties (format "%.0f%%" (/ x y 0.01)))))
 
+;; TODO: finish this
+
+(defun knessy--convert-time-units-seconds (s)
+  "Convert a string representing time to seconds integer.
+
+S is the string."
+  (if (or (s-equals? "-" s) (s-blank? s))
+      0
+    (when (string-match (rx bol
+                            (zero-or-more (group (one-or-more digit)) (group "d"))
+                            (zero-or-more (group (one-or-more digit)) (group "h"))
+                            (zero-or-more (group (one-or-more digit)) (group "m"))
+                            (zero-or-more (group (one-or-more digit)) (group "s"))
+                            eol)
+                        s)
+      (let ((seconds 0))
+        (dotimes (i 4 seconds)
+          (let ((digit-group (1+ (* i 2)))
+                (unit-group (+ 2 (* i 2))))
+            (when (match-string digit-group)
+              (setq seconds (+ seconds
+                               (*
+                                (asoc-get knessy--time-unit-multipliers-alist (match-string unit-group))
+                                (string-to-number (match-string digit-group))))))))))))
+
+
+
+
+;; (let* ((num (string-to-number (match-string 1 s)))
+;;              (units (asoc-get knessy--size-units-alist (match-string 2 s)))
+;;              (multiplier (asoc-get knessy--size-unit-multipliers-alist units))
+;;              (bytes (* num multiplier)))
+;;         bytes)
+
+(comment
+ (knessy--convert-time-units-seconds "1m2s"))
 (provide 'knessy-units)

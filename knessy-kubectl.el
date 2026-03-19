@@ -25,7 +25,7 @@
     new-cache))
 
 (defun knessy--cache-contexts-populate-sync ()
-  (let ((buf (knessy--get-empty-buffer "*knessy-cache-contexts*")))
+  (let ((buf (knessy--get-empty-buffer (generate-new-buffer-name "*knessy-cache-contexts*"))))
     (knessy--shell-exec
      "kubectl config get-contexts --output name"
      buf)
@@ -40,7 +40,7 @@
 
 ;; TODO: finish this function
 (defun knessy--cache-namespaces-populate ()
-  (let ((buf (knessy--get-empty-buffer "*knessy-cache-namespaces*")))
+  (let ((buf (knessy--get-empty-buffer (generate-new-buffer-name "*knessy-cache-namespaces*"))))
     (knessy--shell-exec
      "kubectl config get-contexts --output name"
      buf)
@@ -68,9 +68,11 @@
 (defun knessy--cache-namespaces-populate-async ()
   (dolist (ctx knessy--cache-contexts)
     (let ((buf (knessy--get-empty-buffer
-                (concat "*knessy-cache-namespaces-" ctx "*")))
+                (generate-new-buffer-name
+                 (concat "*knessy-cache-namespaces-" ctx "*"))))
           (buferr (knessy--get-empty-buffer
-                   (concat "*knessy-cache-namespaces-" ctx "-stderr*"))))
+                   (generate-new-buffer-name
+                    (concat "*knessy-cache-namespaces-" ctx "-stderr*")))))
 
       (knessy--shell-exec-async2
        (concat
@@ -86,9 +88,11 @@
 (defun knessy--cache-resource-kinds-populate-async ()
   (dolist (ctx knessy--cache-contexts)
     (let ((buf (knessy--get-empty-buffer
-                (concat "*knessy-cache-resources-" ctx "*")))
+                (generate-new-buffer-name
+                 (concat "*knessy-cache-resources-" ctx "*"))))
           (buferr (knessy--get-empty-buffer
-                   (concat "*knessy-cache-resources-" ctx "-stderr*"))))
+                   (generate-new-buffer-name
+                    (concat "*knessy-cache-resources-" ctx "-stderr*")))))
       (knessy--shell-exec-async2
        (concat
         "kubectl --context "
@@ -104,8 +108,8 @@
   ;; should check here for cache freshness really, else
   ;; we'll be issuing too many kubectl calls for each mode activation
 
-  (let ((buf (knessy--get-empty-buffer "*knessy-cache-contexts*"))
-        (buferr (knessy--get-empty-buffer "*knessy-cache-contexts-stderr*")))
+  (let ((buf (knessy--get-empty-buffer (generate-new-buffer-name "*knessy-cache-contexts*")))
+        (buferr (knessy--get-empty-buffer (generate-new-buffer-name "*knessy-cache-contexts-stderr*"))))
     (knessy--shell-exec-async2
      "kubectl config get-contexts --output name"
      buf
