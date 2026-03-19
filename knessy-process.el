@@ -18,6 +18,7 @@
   (lambda (proc string)
     (princ string buf)))
 
+;; FIXME: nconc?..
 (defun knessy--expand-list-in-place (orig extension)
   (dolist (elt extension orig)
     (push elt orig)))

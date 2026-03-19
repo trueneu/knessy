@@ -154,16 +154,27 @@ Specify empty hashtable if no post-processing is desired.
         (1 '((3 . 4)))))
    h))
 
-;; TODO: this is where we'd inject the comparators
+;; TODO: we're going to need to pre-compute the column-numbers beforehand
+;; to implement multi-column sorting, instead of calculating them as we go
+;; but maybe we don't have to do that as tabulated-list-mode sorting is stable
+;; although the precomputed variant is more flexible
+;; in any case this has to happen in the "collate multiple queries results" phase
 (defun knessy--make-tablist-format (columns widths)
-  (apply
-   #'vector
-   (mapcar
-    (lambda (column)
-      (list column
-            (+ 5 (ht-get widths column))
-            t))
-    columns)))
+  (let ((column-counter 0))
+    (apply
+     #'vector
+     (mapcar
+      (lambda (column)
+        (prog1
+          (list column
+                ;; TODO: this has to be customizable
+                (+ 5 (ht-get widths column))
+                (cond ((s-equals? "RESTARTS" column)
+                       (knessy--make-comparator-restarts-time column-counter))
+                      (t
+                       t)))
+          (setq column-counter (1+ column-counter))))
+      columns))))
 
 (defun knessy--propertize-name (id name)
   (if (ht-get knessy--marked id nil)

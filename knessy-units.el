@@ -99,32 +99,63 @@ If either is null, or y == 0, return \"N/A\""
 S is the string."
   (if (or (s-equals? "-" s) (s-blank? s))
       0
-    (when (string-match (rx bol
-                            (zero-or-more (group (one-or-more digit)) (group "d"))
-                            (zero-or-more (group (one-or-more digit)) (group "h"))
-                            (zero-or-more (group (one-or-more digit)) (group "m"))
-                            (zero-or-more (group (one-or-more digit)) (group "s"))
-                            eol)
-                        s)
-      (let ((seconds 0))
-        (dotimes (i 4 seconds)
-          (let ((digit-group (1+ (* i 2)))
-                (unit-group (+ 2 (* i 2))))
-            (when (match-string digit-group)
-              (setq seconds (+ seconds
-                               (*
-                                (asoc-get knessy--time-unit-multipliers-alist (match-string unit-group))
-                                (string-to-number (match-string digit-group))))))))))))
-
-
-
-
-;; (let* ((num (string-to-number (match-string 1 s)))
-;;              (units (asoc-get knessy--size-units-alist (match-string 2 s)))
-;;              (multiplier (asoc-get knessy--size-unit-multipliers-alist units))
-;;              (bytes (* num multiplier)))
-;;         bytes)
+    (if (string-match (rx
+                       (one-or-more
+                        (or
+                         (seq
+                          (group (one-or-more digit))
+                          (group "d"))
+                         (seq
+                          (group (one-or-more digit))
+                          (group "h"))
+                         (seq
+                          (group (one-or-more digit))
+                          (group "m"))
+                         (seq
+                          (group (one-or-more digit))
+                          (group "s")))))
+                      s)
+        (let ((seconds 0))
+          (dotimes (i 4 seconds)
+            (let* ((digit-group (1+ (* i 2)))
+                   (unit-group (+ 2 (* i 2)))
+                   (digit-match (match-string digit-group s))
+                   (unit-match (match-string unit-group s)))
+              (when digit-match
+                (setq seconds (+ seconds
+                                 (*
+                                  (asoc-get knessy--time-unit-multipliers-alist unit-match)
+                                  (string-to-number digit-match))))))))
+      -1)))
 
 (comment
- (knessy--convert-time-units-seconds "1m2s"))
+ (knessy--convert-time-units-seconds "10d"))
 (provide 'knessy-units)
+
+(comment
+ (string-match (rx
+                (? (group (one-or-more digit))
+                   (group "d")))
+               "abcd 10d")
+ (let ((s "abcd 10d11h"))
+   (string-match (rx
+                  (one-or-more
+                    (or
+                     (seq
+                      (group (one-or-more digit))
+                      (group "d"))
+                     (seq
+                      (group (one-or-more digit))
+                      (group "h")))))
+                 s)
+   (match-string 0 s)
+   (match-string 0 s))
+ (rx
+                       bol
+                       (zero-or-more anychar)
+                       (zero-or-more (group (one-or-more digit)) (group "d"))
+                       (zero-or-more (group (one-or-more digit)) (group "h"))
+                       (zero-or-more (group (one-or-more digit)) (group "m"))
+                       (zero-or-more (group (one-or-more digit)) (group "s"))
+                       (zero-or-more anychar)
+                       eol))

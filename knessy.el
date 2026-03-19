@@ -13,12 +13,14 @@
 (load "./knessy-representation.el")
 (load "./knessy-units.el")
 (load "./knessy-utils.el")
+(load "./knessy-comparators.el")
 
 (require 'knessy-kubectl)
 (require 'knessy-process)
 (require 'knessy-representation)
 (require 'knessy-units)
 (require 'knessy-utils)
+(require 'knessy-comparators)
 
 (load "./knessy-tests.el")
 (require 'knessy-tests)
@@ -44,6 +46,13 @@
 (defcustom knessy-all-namespaces-string "*ALL*"
   "String depicting all namespaces, instead of a single one."
   :type 'string
+  :group 'knessy)
+
+(defcustom knessy-restarts-sorting 'time
+  "Sorting function for RESTARTS column. Can be sorted by either
+time of the last restart, or the amount of restarts."
+  :type '(choice (const :tag "By time" time)
+                 (const :tag "By restarts" restarts))
   :group 'knessy)
 
 (defvar knessy-mode-map
@@ -139,9 +148,16 @@
 BUF is buffer with the table, must be in Knessy mode.
 If omitted, use the current one (for synchronous calls)."
   (with-current-buffer (if buf buf (current-buffer))
+    (message "in-repaint")
     (let ((columns (-> knessy--data (asoc-get :headers) (asoc-get :static)))
           (widths (-> knessy--data (asoc-get :headers) (asoc-get :widths)))
           (items (asoc-get knessy--data :items)))
+      (princ columns)
+      (princ "\n")
+      (princ widths)
+      (princ "\n")
+      (princ items)
+      (princ "\n")
       (knessy--make-tablist columns items widths))))
 
 ;; TODO: make this display use aio for giggles!
@@ -170,10 +186,96 @@ If omitted, use the current one (for synchronous calls)."
 ;; TODO: build a simple two-step view, like ordinary get + custom column, use it to test the above
 ;; TODO: make the display function use aio, to wait on multiple things in parallel
 
+;; TODO: finish this!
+(aio-defun knessy--display-aio ()
+  "Make kubectl calls and display the result."
+  (interactive)
+  (message "in aio")
+  (let* ((display-buf (current-buffer))
+         (buf (knessy--get-empty-buffer (generate-new-buffer-name "*knessy-display*")))
+         (buferr (knessy--get-empty-buffer (generate-new-buffer-name "*knessy-display-stderr*"))))
+    (message "in aio2")
+    (let* ((knessy--kind "pods")
+           (knessy--context "minikube")
+           (knessy--namespace "kube-system"))
+      (message "in aio3")
+      (let ((query (ht-get knessy-queries knessy--kind
+                           `((:calls . (((:type . ,knessy-query-default-type))))))))
+        (let* ((calls (asoc-get query :calls))
+               (promises '()))
+          (message "in aio4")
+          (message "calls")
+          (dolist (call calls)
+            (let ((type (asoc-get call :type))
+                  (bbbuf (knessy--get-empty-buffer (generate-new-buffer-name "*knessy-aio-display*")))
+                  (bbbuferr (knessy--get-empty-buffer (generate-new-buffer-name "*knessy-aio-display-stderr*"))))
+              ;; TODO: clean this up and teach it various call types
+              (princ type)
+              (princ "\n")
+              (let ((promise (cond ((eq :get-wide type)
+                                    (knessy--shell-exec-aio "sleep 1 ; kubectl --context minikube -n kube-system get pods" bbbuf bbbuferr (lambda () (knessy--parse-table-kubectl-output bbbuf))))
+                                   ((eq :custom-columns type)
+                                    (knessy--shell-exec-aio "sleep 1 ; kubectl --context minikube -n kube-system get pods" bbbuf bbbuferr (lambda () (knessy--parse-table-kubectl-output bbbuf)))))))
+                (push promise promises))))
+          (aio-await (aio-all promises))
+          ;; all promises are resolved at this point, we can collect those
+          (princ "well hello")
+          (princ "\n")
+          (princ "first\n")
+          (princ (aio-await (car promises)))
+          (princ "first again\n")
+          (princ (aio-await (car promises)))
+          (princ "second\n")
+          (princ (aio-await (cadr promises)))
+          (princ (length promises))
+          (princ "all!\n")
+          (let ((resolved '()))
+            (dolist (promise promises)  ; FIXME: don't know why mapcar doesn't work here
+              (princ "resolved so far:\n")
+              (princ resolved)
+              (push (aio-await promise) resolved))
+            (let* ((columns (asoc-get query :columns nil))
+                   (widths (ht))
+                   (items (ht))
+                   (items-hts (mapcar (lambda (x) (asoc-get x :items))
+                                      resolved)))
+              (princ "\n***x***\n")
+              (dolist (parsed resolved)
+                (unless columns
+                  (setq columns (-> parsed (asoc-get :headers) (asoc-get :static))))
+                (princ "\n***y***\n")
+                (dolist (item (ht-items (-> parsed (asoc-get :headers) (asoc-get :widths))))
+                  (princ "item:\n")
+                  (princ item)
+                  (let ((column (car item))
+                        (width (cadr item)))
+                    (princ "before call:\n")
+                    (princ column)
+                    (princ "\n")
+                    (princ width)
+                    (princ "\n")
+                    (princ widths)
+                    (princ "\n")
+                    (ht-set widths column (max (ht-get widths column 0)
+                                               width))
+                    (princ "after call:\n"))))
+              (princ "\n***z***\n")
+              ;; FIXME: this is atrocious
+              (setq items (ht-copy (first items-hts)))
+              (apply #'knessy--merge-items items items-hts)
+              (princ "items!\n")
+              (princ items)
+              (setq knessy--data
+                    `((:headers . ((:static . ,columns)
+                                   (:widths . ,widths)))
+                      (:items . ,items)))
+              ;; FIXME: after this call all tabulated-list vars are nil
+              (knessy--repaint display-buf))))))))
+
 (transient-define-prefix
   knessy-do () "doc string"
   ["Do"
-     ("d" "display" knessy--display)])
+   ("d" "display" knessy--display)])
 
 (defun knessy-get-buffer ()
   (generate-new-buffer knessy-buffer-name))
