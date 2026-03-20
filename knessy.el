@@ -153,7 +153,8 @@ If omitted, use the current one (for synchronous calls)."
     (let ((columns (-> knessy--data (asoc-get :headers) (asoc-get :static)))
           (widths (-> knessy--data (asoc-get :headers) (asoc-get :widths)))
           (items (asoc-get knessy--data :items)))
-      (knessy--make-tablist columns items widths))))
+      (knessy--make-tablist columns items widths)))
+  (message "Repainted!"))
 
 ;; TODO: make this display use aio for giggles!
 ;; TODO: this function should be using the views definitions, and become generic enough for the future use.
@@ -193,26 +194,22 @@ If omitted, use the current one (for synchronous calls)."
         ;; TODO: continue writing the function forming the cmd string probably
         ;; TODO: dispatch table shouldn't depend on the exec style (sync/async), extract it
         (let ((promise (cond ((eq :get-wide type)
-                              (knessy--shell-exec-aio "sleep 1 ; kubectl --context minikube -n kube-system get pods -o wide" buf buferr (lambda () (knessy--parse-table-kubectl-output buf))))
+                              (knessy--shell-exec-aio "sleep 3 ; kubectl --context minikube -n kube-system get pods -o wide" buf buferr (lambda () (knessy--parse-table-kubectl-output buf))))
                              ((eq :custom-columns type)
-                              (knessy--shell-exec-aio "sleep 1 ; kubectl --context minikube -n kube-system get pods" buf buferr (lambda () (knessy--parse-table-kubectl-output buf)))))))
+                              (knessy--shell-exec-aio "sleep 3 ; kubectl --context minikube -n kube-system get pods" buf buferr (lambda () (knessy--parse-table-kubectl-output buf)))))))
           (push promise promises))))
-    (aio-await (aio-all promises))
-    ;; all promises are resolved at this point, we can collect those
-    (dolist (promise promises)  ; for some reason, mapcar won't work here. Not a big deal though.
-      (push (aio-await promise) resolved))
-    resolved))
+    promises))
 
-(aio-defun knessy--perform-calls-sync (calls)
+(defun knessy--perform-calls-sync (calls)
   (let ((results '()))
     (dolist (call calls)
       (let ((type (asoc-get call :type))
             (buf (knessy--get-empty-buffer (generate-new-buffer-name "*knessy-aio-display*")))
             (buferr (knessy--get-empty-buffer (generate-new-buffer-name "*knessy-aio-display-stderr*"))))
         (cond ((eq :get-wide type)
-               (knessy--shell-exec "sleep 1 ; kubectl --context minikube -n kube-system get pods -o wide" buf))
+               (knessy--shell-exec "sleep 3 ; kubectl --context minikube -n kube-system get pods -o wide" buf))
               ((eq :custom-columns type)
-               (knessy--shell-exec "sleep 1 ; kubectl --context minikube -n kube-system get pods" buf)))
+               (knessy--shell-exec "sleep 3 ; kubectl --context minikube -n kube-system get pods" buf)))
         (push (knessy--parse-table-kubectl-output buf) results)))
     results))
 
@@ -220,9 +217,11 @@ If omitted, use the current one (for synchronous calls)."
 ;; TODO: add appending NAMESPACE column before NAME if it's missing + not all-namespaces
 ;; TODO: extract functions as much as possible -- for the thing to be re-usable in sync display as well
 ;; TODO: write a sync counterpart
-(aio-defun knessy--display-aio ()
-  "Make kubectl calls and display the result."
-  (interactive)
+(aio-defun knessy--display-aio (&optional sync)
+  "Make kubectl calls and display the result.
+
+Set universal argument to make the call synchronous (useful for debugging)."
+  (interactive "P")
   (let* ((display-buf (current-buffer)))
     ;; setup the environment, this must go
     (let* ((knessy--kind "pods")
@@ -231,36 +230,25 @@ If omitted, use the current one (for synchronous calls)."
       (let* ((view (ht-get knessy-views knessy--kind
                            `((:calls . (((:type . ,knessy-call-default-type)))))))
              (calls (asoc-get view :calls))
-             (promises '())
-             (resolved '()))
-        ;; actually perform the queries
-        (dolist (call calls)
-          (let ((type (asoc-get call :type))
-                (buf (knessy--get-empty-buffer (generate-new-buffer-name "*knessy-aio-display*")))
-                (buferr (knessy--get-empty-buffer (generate-new-buffer-name "*knessy-aio-display-stderr*"))))
-            ;; TODO: clean this up and teach it various call types
-            ;; TODO: continue writing the function forming the cmd string probably
-            (let ((promise (cond ((eq :get-wide type)
-                                  (knessy--shell-exec-aio "sleep 1 ; kubectl --context minikube -n kube-system get pods -o wide" buf buferr (lambda () (knessy--parse-table-kubectl-output buf))))
-                                 ((eq :custom-columns type)
-                                  (knessy--shell-exec-aio "sleep 1 ; kubectl --context minikube -n kube-system get pods" buf buferr (lambda () (knessy--parse-table-kubectl-output buf)))))))
-              (push promise promises))))
-        (aio-await (aio-all promises))
-        ;; all promises are resolved at this point, we can collect those
-        (dolist (promise promises)  ; for some reason, mapcar won't work here. Not a big deal though.
-          (push (aio-await promise) resolved))
+             (results (if sync
+                          (knessy--perform-calls-sync calls)
+                        (let ((promises (aio-await (knessy--perform-calls-async calls)))
+                              (collected '()))
+                          (dolist (promise promises)  ; for some reason, mapcar won't work here. Not a big deal though.
+                            (push (aio-await promise) collected))
+                          collected))))
         (let* ((columns (asoc-get view :columns nil))
                (widths (ht))
                (items-calls (mapcar (lambda (x) (asoc-get x :items))
-                                    resolved))
+                                    results))
                (items-first (car items-calls))
                (items-rest (cdr items-calls)))
           ;; setup columns + widths
-          (dolist (parsed resolved)
+          (dolist (result results)
             ;; if the view misses columns, most likely it's a default view (so display whatever we got with default call)
             (unless columns
-              (setq columns (-> parsed (asoc-get :headers) (asoc-get :static))))
-            (dolist (item (ht-items (-> parsed (asoc-get :headers) (asoc-get :widths))))
+              (setq columns (-> result (asoc-get :headers) (asoc-get :static))))
+            (dolist (item (ht-items (-> result (asoc-get :headers) (asoc-get :widths))))
               (let ((column (car item))
                     (width (cadr item)))
                 (ht-set widths column (max (ht-get widths column 0)

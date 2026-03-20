@@ -44,6 +44,7 @@
     (set-process-filter process (knessy--make-process-filter-to-buffer buf))
     (set-process-sentinel process (knessy--make-callback-sentinel callback))))
 
+;; FIXME: this gets shell-command's output?.. how?..
 (defun knessy--error-buf ()
   "*Messages*")
 

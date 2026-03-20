@@ -2,7 +2,7 @@
 
 ;; TODO: make NAMESPACE hide-able (or force-appendable)
 (defcustom knessy-views
-  (ht ("pods" `((:columns . ("NAME" "STATUS" "READY"))
+  (ht ("pods" `((:columns . ("NAME" "STATUS" "READY" "NODE"))
                 (:calls . (((:type . :custom-columns)
                             (:spec . "NAMESPACE:.metadata.namespace,NAME:.metadata.name"))
                            ((:type . :get-wide)))))))
