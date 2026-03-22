@@ -24,13 +24,14 @@
     (push elt orig)))
 
 (defun knessy--shell-exec-async2 (cmd buf buferr callback)
-  (let* ((process (make-process
-                   :name "knessy-shell-exec"
-                   :command (list "/bin/bash" "-c" cmd)
-                   :buffer buf
-                   :stderr buferr
-                   :filter (knessy--make-process-filter-to-buffer buf)
-                   :sentinel (knessy--make-callback-sentinel callback))))))
+  (with-environment-variables (("KUBECONFIG" knessy--kubeconfig))
+    (let* ((process (make-process
+                     :name "knessy-shell-exec"
+                     :command (list "/bin/bash" "-c" cmd)
+                     :buffer buf
+                     :stderr buferr
+                     :filter (knessy--make-process-filter-to-buffer buf)
+                     :sentinel (knessy--make-callback-sentinel callback)))))))
 
 (comment
  (knessy--shell-exec-async2
@@ -46,10 +47,11 @@
 
 ;; FIXME: this gets shell-command's output?.. how?..
 (defun knessy--error-buf ()
-  "*Messages*")
+  "*knessy-err*")
 
 (defun knessy--shell-exec (cmd buf)
-  (shell-command cmd buf (knessy--error-buf)))
+  (with-environment-variables (("KUBECONFIG" knessy--kubeconfig))
+    (shell-command cmd buf (knessy--error-buf))))
 
 ;; TODO: look into (with-temp-buffer) macro instead of using named buffers
 ;; to check this, refresh tablist _quickly_ with <g> <g> for example -- it attempts to kill a buffer with process still attached
@@ -57,17 +59,6 @@
 
 ;; async read: https://github.com/Silex/docker.el/blob/master/docker-volume.el#L88-L92 , https://github.com/skeeto/emacs-aio/issues/1
 ;; https://github.com/skeeto/emacs-aio/issues/19
-(cl-defun knessy--shell-exec-parse-async (cmd buf buferr &optional headers (pre-process-ht (ht)) (post-process-ht (ht)))
-  (let ((promise (aio-promise)))
-    (prog1 promise
-      (knessy--shell-exec-async2
-       cmd buf buferr
-       (lambda ()
-         (aio-resolve
-          promise
-          (lambda ()
-            (knessy--parse-table-kubectl-output buf headers pre-process-ht post-process-ht))))))))
-
 (cl-defun knessy--shell-exec-aio (cmd buf buferr callback)
   (let ((promise (aio-promise)))
     (prog1 promise

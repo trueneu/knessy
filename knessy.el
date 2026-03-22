@@ -14,7 +14,8 @@
 (load "./knessy-units.el")
 (load "./knessy-utils.el")
 (load "./knessy-comparators.el")
-(load "./knessy-queries.el")
+(load "./knessy-views.el")
+(load "./knessy-cache.el")
 
 (require 'knessy-kubectl)
 (require 'knessy-process)
@@ -23,6 +24,7 @@
 (require 'knessy-utils)
 (require 'knessy-comparators)
 (require 'knessy-views)
+(require 'knessy-cache)
 
 (load "./knessy-tests.el")
 (require 'knessy-tests)
@@ -30,7 +32,7 @@
 (defgroup knessy nil "Customisation group for Knessy."
   :group 'extensions)
 
-(defcustom knessy-default-kubeconfig "~/.kube/config"
+(defcustom knessy-kubeconfig "~/.kube/config"
   "Kubectl config(s) path. May contain multiple files delimited by colon (`:`)"
   :type 'string
   :group 'knessy)
@@ -40,7 +42,7 @@
   :type 'string
   :group 'knessy)
 
-(defcustom knessy-buffer-name "*knessy*"
+(defcustom knessy-base-buffer-name "knessy"
   "Default buffer name for Knessy."
   :type 'string
   :group 'knessy)
@@ -65,12 +67,42 @@ time of the last restart, or the amount of restarts."
     (define-key map (kbd "u") 'knessy-unmark)
     (define-key map (kbd "M") 'knessy-mark-all)
     (define-key map (kbd "U") 'knessy-unmark-all)
+    (define-key map (kbd "r") 'knessy-rename)
+    (define-key map (kbd "b") 'knessy-switch-buffer)
+    (define-key map (kbd "K") 'knessy-cleanup-buffers)
     map)
   "Keymap for `knessy-mode'.")
 
-(defvar-local knessy--kubeconfig (knessy--expand-colons knessy-default-kubeconfig))
+(defvar-local knessy--kubeconfig (knessy--expand-colons knessy-kubeconfig))
 
+;; TODO: update on every namespace switch
 (defvar-local knessy--namespace-all? nil)
+
+(defun knessy-switch-buffer ()
+  "Switch to another Knessy buffer."
+  (interactive)
+  ;; TODO: can we integrate with persp-mode or perspective or projects here seamlessly?..
+  (let* ((candidate-names (->> (buffer-list)
+                               (mapcar #'buffer-name)
+                               (-filter (lambda (s) (s-starts-with? "*knessy" s)))))
+         (chosen-buf-name (completing-read "Choose the buffer: " candidate-names)))
+    (switch-to-buffer chosen-buf-name)))
+
+(defun knessy-cleanup-buffers ()
+  "Kill all Knessy buffers"
+  (interactive)
+  ;; TODO: can we integrate with persp-mode or perspective or projects here seamlessly?..
+  (when (yes-or-no-p "Really kill all Knessy buffers?")
+    (->> (buffer-list)
+         (mapcar #'buffer-name)
+         (-filter (lambda (s) (s-starts-with? "*knessy" s)))
+         (mapcar #'kill-buffer))))
+
+(defun knessy-rename (name)
+  "Rename current Knessy buffer to NAME."
+  (interactive "MRename Knessy buffer: ")
+  (let ((new-name (knessy--generate-buffer-name knessy-base-buffer-name name)))
+    (rename-buffer new-name)))
 
 (defun knessy-mark ()
   (interactive)
@@ -204,8 +236,8 @@ If omitted, use the current one (for synchronous calls)."
   (let ((results '()))
     (dolist (call calls)
       (let ((type (asoc-get call :type))
-            (buf (knessy--get-empty-buffer (generate-new-buffer-name "*knessy-aio-display*")))
-            (buferr (knessy--get-empty-buffer (generate-new-buffer-name "*knessy-aio-display-stderr*"))))
+            (buf (knessy--get-empty-buffer (generate-new-buffer-name "*knessy-display*")))
+            (buferr (knessy--get-empty-buffer (generate-new-buffer-name "*knessy-display-stderr*"))))
         (cond ((eq :get-wide type)
                (knessy--shell-exec "sleep 3 ; kubectl --context minikube -n kube-system get pods -o wide" buf))
               ((eq :custom-columns type)
@@ -268,8 +300,19 @@ Set universal argument to make the call synchronous (useful for debugging)."
   ["Do"
    ("d" "display" knessy--display)])
 
-(defun knessy-get-buffer ()
-  (generate-new-buffer knessy-buffer-name))
+(defun knessy--generate-buffer-name (base suffix)
+  (if suffix
+      (format "*%s - %s*" base suffix)
+    (format "*%s*" base)))
+
+(defun knessy-get-new-buffer ()
+  (let* ((buf-name (generate-new-buffer-name
+                    (knessy--generate-buffer-name knessy-base-buffer-name nil)))
+         (buf (knessy--get-empty-buffer buf-name)))
+    (push buf-name knessy-buffer-list)
+    buf))
+
+;; TODO: implement switching to buffer
 
 (defvar knessy-buffer-list nil
   "The list of Knessy buffers.")
@@ -278,7 +321,7 @@ Set universal argument to make the call synchronous (useful for debugging)."
 (defun knessy-new ()
   "Create new knessy buffer."
   (interactive)
-  (let* ((knessy-buffer (knessy-get-buffer)))
+  (let* ((knessy-buffer (knessy-get-new-buffer)))
     (setq knessy-buffer-list (nconc knessy-buffer-list (list knessy-buffer)))
     (set-buffer knessy-buffer)
     (knessy-mode)
@@ -298,7 +341,7 @@ Set universal argument to make the call synchronous (useful for debugging)."
   (knessy--caches-populate-async)
   ;; TODO: this adds a hook for every tablist mode revert?..
   ;; TODO: in these functions that repaint stuff
-  (add-hook 'tabulated-list-revert-hook #'knessy--display)
+  (add-hook 'tabulated-list-revert-hook #'knessy--display-aio)
   (run-mode-hooks 'knessy-mode-hook))
 
 ;; TODO: next thing, implement data <-> display link to hash out the data architecture
@@ -310,7 +353,7 @@ Set universal argument to make the call synchronous (useful for debugging)."
 
 (comment
  (remove-hook
-  'tabulated-list-mode-hook #'knessy--display))
+  'tabulated-list-revert-hook #'knessy--display))
 
 (provide 'knessy)
 ;;; knessy.el ends here

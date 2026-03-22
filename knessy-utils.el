@@ -6,7 +6,7 @@
   (let ((buf (get-buffer buffer-name)))
     (when buf
       (kill-buffer buf))
-    (get-buffer-create buffer-name)))
+    (get-buffer-create buffer-name t)))
 
 (defun knessy--expand-colons (s)
   (s-join ":"

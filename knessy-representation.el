@@ -114,9 +114,6 @@ Specify empty hashtable if no post-processing is desired.
                    (:widths . ,widths-ht))))))
 
 (comment
- (aio-wait-for (knessy--shell-exec-parse-async "sleep 3 ; kubectl get pods -n kube-system"
-                                                       (get-buffer-create "*test-call-and-parse*")
-                                                       (get-buffer-create "*test-call-and-parse-err*")))
  (aio-wait-for (knessy--aio-display))
  (knessy--shell-exec-parse "kubectl get pods -n kube-system" (get-buffer-create "*test-call-and-parse*"))
  (knessy--parse-table-kubectl-output
