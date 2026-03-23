@@ -12,6 +12,10 @@
   (ht)
   "Caches available namespaces.")
 
+(defvar knessy--cache
+  (ht)
+  "Caches everything.")
+
 ;; TODO: can generalize this to readlines and save to a list
 (defun knessy--read-buffer-kill (buf)
   (let (new-cache)

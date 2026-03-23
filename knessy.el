@@ -339,9 +339,8 @@ Set universal argument to make the call synchronous (useful for debugging)."
   (setq major-mode 'knessy-mode)
   (use-local-map knessy-mode-map)
   (knessy--caches-populate-async)
-  ;; TODO: this adds a hook for every tablist mode revert?..
-  ;; TODO: in these functions that repaint stuff
-  (add-hook 'tabulated-list-revert-hook #'knessy--display-aio)
+  ;; FIXME: this actually breaks stuff, global hook -- let's override revert for Knessy buffers?
+  ;; (add-hook 'tabulated-list-revert-hook #'knessy--display-aio)
   (run-mode-hooks 'knessy-mode-hook))
 
 ;; TODO: next thing, implement data <-> display link to hash out the data architecture
@@ -353,7 +352,7 @@ Set universal argument to make the call synchronous (useful for debugging)."
 
 (comment
  (remove-hook
-  'tabulated-list-revert-hook #'knessy--display))
+  'tabulated-list-revert-hook #'knessy--display-aio))
 
 (provide 'knessy)
 ;;; knessy.el ends here

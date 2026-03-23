@@ -3,45 +3,44 @@
 (defcustom knessy-cache-ttl-default (* 3600 24)
   "Default cache time-to-live."
   :type 'integer
-  :group 'knessy) ;; 1 day
+  :group 'knessy)
 
 ;; TODO: don't know how to architect this yet...
 
-(defun knessy--get-cached-data-ht (table key refresh-fn ttl))
+(comment
+ (let ((tbl (ht ('abc 'def))))
+   (ht-get* tbl nil)))
 
-(defun knessy--get-cached-data (var refresh-fn ttl)
-  (let* ((now (current-time))
-         (refresh-at (asoc-get var "refresh-at" '(0 0 0 0)))
-         (data (asoc-get var "data" nil))
-         (new-data (if (or (not data) (time-less-p refresh-at now))
-                       (funcall refresh-fn)
-                     data)))
-    new-data))
+(defun knessy--get-cached (table keys refresh-fn ttl)
+  (let ((current-table table))
+    (dolist (key keys)
+      (unless (ht-get current-table key)
+        (ht-set current-table key (ht)))))
 
+  (let* ((target-table (if keys
+                           (apply #'ht-get* table keys)
+                         table))
+         (now (current-time))
+         (refresh-at (ht-get target-table :refresh-at '(0 0 0 0)))
+         (data (ht-get target-table :data nil)))
+    (if (or (not data) (time-less-p refresh-at now))
+        (progn
+          (let ((new-data (funcall refresh-fn)))
+            (ht-set target-table :data new-data)
+            (ht-set target-table :refresh-at (time-add now ttl))
+            new-data))
 
-(defun knessy--test (var)
-  (asoc-put! var "key" "value"))
+      data)))
 
 (comment
- (let ((l '((a . b))))
-   (knessy--test l)
-   (symbol-value 'l)))
-
-(defun knessy--load-file-cached (path load-fn cache-for)
-  (let* ((contents-str (if (f-file? path)
-                           (f-read-text path)
-                         "{\"refresh-at\": [0, 0, 0, 0], \"data\":{}}"))
-         (contents (json-parse-string contents-str))
-         (data (ht-get contents "data"))
-         (refresh-at (append (ht-get contents "refresh-at") nil))
-         (ctime (current-time)))
-    (if (time-less-p refresh-at ctime)
-        (let* ((new-data (funcall load-fn))
-               (new-contents (ht-create)))
-          (ht-set! new-contents "refresh-at" (time-add ctime cache-for))
-          (ht-set! new-contents "data" new-data)
-          (f-write-text (json-encode new-contents) 'utf-8 path)
-          new-data)
-      data)))
+ (setq trueneu/test-ht (ht))
+ (format-time-string "%H:%M:%S" (time-add (current-time) 0))
+ (knessy--get-cached-data-ht trueneu/test-ht
+                             '(very-interesting-data)
+                             (lambda ()
+                               (message "refreshing stuff")
+                               (current-time-string))
+                             5)
+ trueneu/test-ht)
 
 (provide 'knessy-cache)
