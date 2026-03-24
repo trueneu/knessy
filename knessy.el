@@ -1,6 +1,6 @@
 ;;; TODO - write a proper emacs package header  -*- lexical-binding: t; -*-
 
-;; dependencies: emacs 28.1, s.el, transient
+;; dependencies: emacs 28.1, s.el, transient, dash, asoc, ht
 
 (require 's)
 (require 'asoc)
@@ -32,7 +32,7 @@
 (defgroup knessy nil "Customisation group for Knessy."
   :group 'extensions)
 
-(defcustom knessy-kubeconfig "~/.kube/config"
+(defcustom knessy-kubeconfig (getenv "KUBECONFIG")
   "Kubectl config(s) path. May contain multiple files delimited by colon (`:`)"
   :type 'string
   :group 'knessy)
@@ -48,7 +48,7 @@
   :group 'knessy)
 
 (defcustom knessy-all-namespaces-string "*ALL*"
-  "String depicting all namespaces, instead of a single one."
+  "String depicting all namespaces."
   :type 'string
   :group 'knessy)
 
@@ -70,21 +70,34 @@ time of the last restart, or the amount of restarts."
     (define-key map (kbd "r") 'knessy-rename)
     (define-key map (kbd "b") 'knessy-switch-buffer)
     (define-key map (kbd "K") 'knessy-cleanup-buffers)
+    (define-key map (kbd "g") 'knessy--display-aio)
     map)
   "Keymap for `knessy-mode'.")
 
-(defvar-local knessy--kubeconfig (knessy--expand-colons knessy-kubeconfig))
-
 ;; TODO: update on every namespace switch
-(defvar-local knessy--namespace-all? nil)
+(defvar-local knessy--namespace-current-all? nil)
 
-(defun knessy-switch-buffer ()
-  "Switch to another Knessy buffer."
-  (interactive)
+;; Source - https://stackoverflow.com/a/22460428
+;; Posted by Brian Burns, modified by community.
+;; Retrieved 2026-03-23, License - CC BY-SA 4.0
+(defun knessy--buffer-mode (&optional buffer-or-name)
+  "Returns the major mode associated with a buffer.
+If buffer-or-name is nil return current buffer's mode."
+  (buffer-local-value 'major-mode
+   (if buffer-or-name (get-buffer buffer-or-name) (current-buffer))))
+
+(defun knessy-switch-buffer (&optional all)
+  "Switch to another Knessy buffer. Without ALL, lists only buffers
+in Knessy mode, else lists all existing buffers."
+  (interactive "P")
   ;; TODO: can we integrate with persp-mode or perspective or projects here seamlessly?..
   (let* ((candidate-names (->> (buffer-list)
                                (mapcar #'buffer-name)
-                               (-filter (lambda (s) (s-starts-with? "*knessy" s)))))
+                               (-filter (lambda (s)
+                                          (and
+                                           (s-starts-with? "*knessy" s)
+                                           (if all t
+                                             (eq 'knessy-mode (knessy--buffer-mode s))))))))
          (chosen-buf-name (completing-read "Choose the buffer: " candidate-names)))
     (switch-to-buffer chosen-buf-name)))
 
@@ -131,9 +144,12 @@ time of the last restart, or the amount of restarts."
 
 
 ;; TODO: call this when changing a namespace
-(defun knessy--namespace-all?-update ()
-  (setq knessy--namespace-all?
+(defun knessy--namespace-current-all?-update ()
+  (setq knessy--namespace-current-all?
         (s-equals? knessy--namespace knessy-all-namespaces-string)))
+
+(defun knessy--namespace-all? (namespace)
+  (s-equals? namespace knessy-all-namespaces-string))
 
 ;; TODO: all these should be customizable
 ;; TODO: these should be set from the actual available resources,
@@ -146,23 +162,50 @@ time of the last restart, or the amount of restarts."
 (defvar-local knessy--kind
   "pods")
 
+(defun knessy--select-config-file (filename)
+  (interactive
+   (list (read-file-name "kubeconfig: " "~/.kube" nil t)))
+  (let ((filename (or filename "~/.kube/config")))
+    (if (file-exists-p (expand-file-name filename))
+        (progn
+          (setq knessy-kubeconfig filename)
+          (knessy--caches-populate-async))
+
+      (error "Kubectl config file '%s' does not exist!" filename))))
+
 (defun knessy--print-msg ()
   (interactive)
   (message "Hello world!"))
 
+;; TODO: *all*?..
 (defun knessy--select-context ()
   (interactive)
   (setq knessy--context
         (completing-read "Context: "
-                         (knessy--cache-contexts-read))))
+                         (knessy--contexts))))
+
+;; TODO: *all*!
+(defun knessy--select-namespace ()
+  (interactive)
+  (setq knessy--namespace
+        (completing-read "Namespace: "
+                         (knessy--namespaces))))
+
+
+;; TODO: *all*!
+(defun knessy--select-kind ()
+  (interactive)
+  (setq knessy--kind
+        (completing-read "Kind: "
+                         (knessy--kinds))))
 
 (transient-define-prefix
   knessy-config () "doc string"
   ["Configure"
-     ("r" "resource" knessy--print-msg)
-     ("n" "namespace" knessy--print-msg)
+     ("k" "kind" knessy--select-kind)
+     ("n" "namespace" knessy--select-namespace)
      ("c" "context" knessy--select-context)
-     ("f" "config-file" knessy--print-msg)])
+     ("f" "config-file" knessy--select-config-file)])
 
 (defvar-local knessy--data nil
   "Data that was received with the latest query.")
@@ -226,9 +269,11 @@ If omitted, use the current one (for synchronous calls)."
         ;; TODO: continue writing the function forming the cmd string probably
         ;; TODO: dispatch table shouldn't depend on the exec style (sync/async), extract it
         (let ((promise (cond ((eq :get-wide type)
-                              (knessy--shell-exec-aio "sleep 3 ; kubectl --context minikube -n kube-system get pods -o wide" buf buferr (lambda () (knessy--parse-table-kubectl-output buf))))
+                              (knessy--shell-exec-aio (knessy--kubectl-cmd-get knessy--context knessy--namespace knessy--kind "wide") buf buferr (lambda () (knessy--parse-table-kubectl-output buf))))
+                             ((eq :get type)
+                              (knessy--shell-exec-aio (knessy--kubectl-cmd-get knessy--context knessy--namespace knessy--kind) buf buferr (lambda () (knessy--parse-table-kubectl-output buf))))
                              ((eq :custom-columns type)
-                              (knessy--shell-exec-aio "sleep 3 ; kubectl --context minikube -n kube-system get pods" buf buferr (lambda () (knessy--parse-table-kubectl-output buf)))))))
+                              (knessy--shell-exec-aio (knessy--kubectl-cmd-get knessy--context knessy--namespace knessy--kind (s-concat "custom-columns=" (asoc-get call :spec))) buf buferr (lambda () (knessy--parse-table-kubectl-output buf)))))))
           (push promise promises))))
     promises))
 
@@ -236,64 +281,68 @@ If omitted, use the current one (for synchronous calls)."
   (let ((results '()))
     (dolist (call calls)
       (let ((type (asoc-get call :type))
-            (buf (knessy--get-empty-buffer (generate-new-buffer-name "*knessy-display*")))
-            (buferr (knessy--get-empty-buffer (generate-new-buffer-name "*knessy-display-stderr*"))))
+            (buf (knessy--get-empty-buffer (generate-new-buffer-name "*knessy-display*"))))
         (cond ((eq :get-wide type)
-               (knessy--shell-exec "sleep 3 ; kubectl --context minikube -n kube-system get pods -o wide" buf))
+               (knessy--shell-exec (knessy--kubectl-cmd-get knessy--context knessy--namespace knessy--kind "wide") buf))
+              ((eq :get type)
+               (knessy--shell-exec (knessy--kubectl-cmd-get knessy--context knessy--namespace knessy--kind) buf))
               ((eq :custom-columns type)
-               (knessy--shell-exec "sleep 3 ; kubectl --context minikube -n kube-system get pods" buf)))
+               (knessy--shell-exec (knessy--kubectl-cmd-get knessy--context knessy--namespace knessy--kind (s-concat "custom-columns=" (asoc-get call :spec))) buf)))
         (push (knessy--parse-table-kubectl-output buf) results)))
     results))
 
 ;; TODO: finish this!
 ;; TODO: add appending NAMESPACE column before NAME if it's missing + not all-namespaces
-;; TODO: extract functions as much as possible -- for the thing to be re-usable in sync display as well
-;; TODO: write a sync counterpart
 (aio-defun knessy--display-aio (&optional sync)
   "Make kubectl calls and display the result.
 
-Set universal argument to make the call synchronous (useful for debugging)."
+Set SYNC to non-nil to make the call synchronous (useful for debugging)."
   (interactive "P")
+  (message "Refreshing...")
   (let* ((display-buf (current-buffer)))
-    ;; setup the environment, this must go
-    (let* ((knessy--kind "pods")
-           (knessy--context "minikube")
-           (knessy--namespace "kube-system"))
-      (let* ((view (ht-get knessy-views knessy--kind
-                           `((:calls . (((:type . ,knessy-call-default-type)))))))
-             (calls (asoc-get view :calls))
-             (results (if sync
-                          (knessy--perform-calls-sync calls)
-                        (let ((promises (aio-await (knessy--perform-calls-async calls)))
-                              (collected '()))
-                          (dolist (promise promises)  ; for some reason, mapcar won't work here. Not a big deal though.
-                            (push (aio-await promise) collected))
-                          collected))))
-        (let* ((columns (asoc-get view :columns nil))
-               (widths (ht))
-               (items-calls (mapcar (lambda (x) (asoc-get x :items))
-                                    results))
-               (items-first (car items-calls))
-               (items-rest (cdr items-calls)))
-          ;; setup columns + widths
-          (dolist (result results)
-            ;; if the view misses columns, most likely it's a default view (so display whatever we got with default call)
-            (unless columns
-              (setq columns (-> result (asoc-get :headers) (asoc-get :static))))
-            (dolist (item (ht-items (-> result (asoc-get :headers) (asoc-get :widths))))
-              (let ((column (car item))
-                    (width (cadr item)))
-                (ht-set widths column (max (ht-get widths column 0)
-                                           width)))))
-          ;; setup items
-          (apply #'knessy--merge-items items-first items-rest)
-          ;; set the rendering basis DS
-          (setq knessy--data
-                `((:headers . ((:static . ,columns)
-                               (:widths . ,widths)))
-                  (:items . ,items-first)))
-          ;; paint!
-          (knessy--repaint display-buf))))))
+    (let* ((view (ht-get knessy-views knessy--kind
+                         `((:calls . (((:type . ,knessy-call-default-type)))))))
+           (calls (asoc-get view :calls))
+           (results (if sync
+                        (knessy--perform-calls-sync calls)
+                      (let ((promises (aio-await (knessy--perform-calls-async calls)))
+                            (collected '()))
+                        (dolist (promise promises)  ; for some reason, mapcar won't work here. Not a big deal though.
+                          (push (aio-await promise) collected))
+                        collected))))
+      (let* ((columns (asoc-get view :columns nil))
+             ;; mix-in NAMESPACE column in front of NAME if current namespace is *ALL*
+             ;; if the columns is nil, leave it as is -- NAMESPACE should be present in the kubectl output anyways
+             (columns (if (and knessy--namespace-current-all? columns)
+                          (knessy--insert-into-list
+                           columns "NAMESPACE" (-elem-index "NAME" columns))
+                        columns))
+             (widths (ht))
+             (items-calls (mapcar (lambda (x) (asoc-get x :items))
+                                  results))
+             (items-first (car items-calls))
+             (items-rest (cdr items-calls)))
+
+        ;; setup columns + widths
+        (dolist (result results)
+          ;; if the view misses columns, most likely it's a default view (so display whatever we got with default call)
+          (unless columns
+            (setq columns (-> result (asoc-get :headers) (asoc-get :static))))
+          (dolist (item (ht-items (-> result (asoc-get :headers) (asoc-get :widths))))
+            (let ((column (car item))
+                  (width (cadr item)))
+              (ht-set widths column (max (ht-get widths column 0)
+                                         width)))))
+        ;; setup items
+        (apply #'knessy--merge-items items-first items-rest)
+        ;; set the rendering basis DS
+        (setq knessy--data
+              `((:headers . ((:static . ,columns)
+                             (:widths . ,widths)))
+                (:items . ,items-first)))
+        (princ knessy--data)
+        ;; paint!
+        (knessy--repaint display-buf)))))
 
 (transient-define-prefix
   knessy-do () "doc string"

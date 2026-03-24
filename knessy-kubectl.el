@@ -1,20 +1,30 @@
 ;; -*- lexical-binding: t; -*-
 
-(defvar knessy--cache-contexts
-  '()
-  "Caches available contexts.")
-
-(defvar knessy--cache-kinds
-  (ht)
-  "Caches available resource kinds.")
-
-(defvar knessy--cache-namespaces
-  (ht)
-  "Caches available namespaces.")
-
 (defvar knessy--cache
   (ht)
   "Caches everything.")
+
+(defun knessy--kubectl-cmd-get (ctx namespace kind &optional fmt)
+  (let ((cmd (s-concat
+              knessy-kubectl
+              " --context " ctx
+              (if (knessy--namespace-all? namespace)
+                  ""
+                (s-concat " -n " namespace))
+              " get "  kind
+              (if (knessy--namespace-all? namespace)
+                  " -A"
+                "")
+              (if fmt
+                  (s-concat " -o " fmt)
+                ""))))
+    (message cmd)
+    cmd))
+
+
+(comment
+ (knessy--kubectl-cmd-get "pods" "*ALL*" "json"))
+
 
 ;; TODO: can generalize this to readlines and save to a list
 (defun knessy--read-buffer-kill (buf)
@@ -28,49 +38,60 @@
       (kill-buffer))
     new-cache))
 
-(defun knessy--cache-contexts-populate-sync ()
-  (let ((buf (knessy--get-empty-buffer (generate-new-buffer-name "*knessy-cache-contexts*"))))
+(defun knessy--query-contexts-sync ()
+  (let ((buf (knessy--get-empty-buffer (generate-new-buffer-name "*knessy-contexts*"))))
     (knessy--shell-exec
      "kubectl config get-contexts --output name"
      buf)
-    (setq knessy--cache-contexts
-          (knessy--read-buffer-kill buf))))
+    (knessy--read-buffer-kill buf)))
 
-(defun knessy--cache-contexts-read ()
-  ;; TODO: here might be logic to refresh once in a while
-  (unless knessy--cache-contexts
-    (knessy--cache-contexts-populate-sync))
-  knessy--cache-contexts)
+(defun knessy--contexts ()
+  (knessy--cache-get
+   knessy--cache
+   '(:ctx)
+   (lambda ()
+     (knessy--query-contexts-sync))))
 
-;; TODO: finish this function
-(defun knessy--cache-namespaces-populate ()
-  (let ((buf (knessy--get-empty-buffer (generate-new-buffer-name "*knessy-cache-namespaces*"))))
+(defun knessy--query-namespaces-sync ()
+  (let ((buf (knessy--get-empty-buffer (generate-new-buffer-name (s-concat "*knessy-" knessy--context "-namespaces*")))))
     (knessy--shell-exec
-     "kubectl config get-contexts --output name"
+     "kubectl get namespaces --output custom-columns='NAME:.metadata.name' --no-headers"
      buf)
-    (ht-set
-     knessy--cache-namespaces
-     knessy--context
-     (knessy--read-buffer-kill buf))))
+    (knessy--read-buffer-kill buf)))
 
-(comment
- (knessy--cache-contexts-populate)
- knessy--cache-contexts
- (completing-read "Context: " knessy--cache-contexts))
+(defun knessy--namespaces ()
+  (knessy--cache-get
+   knessy--cache
+   (list :namespaces knessy--context)
+   (lambda ()
+     (cons knessy-all-namespaces-string
+       (knessy--query-namespaces-sync)))))
+
+(defun knessy--query-kinds-sync ()
+  (let ((buf (knessy--get-empty-buffer (generate-new-buffer-name (s-concat "*knessy-" knessy--context "-kinds*")))))
+    (knessy--shell-exec
+     "kubectl api-resources --output name"
+     buf)
+    (knessy--read-buffer-kill buf)))
+
+(defun knessy--kinds ()
+  (knessy--cache-get
+   knessy--cache
+   (list :kinds knessy--context)
+   (lambda ()
+     (knessy--query-kinds-sync))))
 
 (defun knessy-cache-clear ()
   "Resets all the Knessy caches."
   (interactive)
-  (setq knessy--cache-contexts '())
-  (ht-clear knessy--cache-namespaces)
-  (ht-clear knessy--cache-kinds))
+  (ht-clear knessy--cache))
 
 ;; TODO: things different between the two functions below are
 ;; buffer names
 ;; kubectl commands
 ;; destinations
 (defun knessy--cache-namespaces-populate-async ()
-  (dolist (ctx knessy--cache-contexts)
+  (dolist (ctx (knessy--contexts))
     (let ((buf (knessy--get-empty-buffer
                 (generate-new-buffer-name
                  (concat "*knessy-cache-namespaces-" ctx "*"))))
@@ -86,11 +107,13 @@
        buf
        buferr
        (lambda ()
-         (ht-set knessy--cache-namespaces ctx
-                 (knessy--read-buffer-kill buf)))))))
+         (knessy--cache-set
+          knessy--cache
+          (list :namespaces ctx)
+          (cons knessy-all-namespaces-string (knessy--read-buffer-kill buf))))))))
 
-(defun knessy--cache-resource-kinds-populate-async ()
-  (dolist (ctx knessy--cache-contexts)
+(defun knessy--cache-kinds-populate-async ()
+  (dolist (ctx (knessy--contexts))
     (let ((buf (knessy--get-empty-buffer
                 (generate-new-buffer-name
                  (concat "*knessy-cache-resources-" ctx "*"))))
@@ -105,13 +128,12 @@
        buf
        buferr
        (lambda ()
-         (ht-set knessy--cache-kinds ctx
-                 (knessy--read-buffer-kill buf)))))))
+         (knessy--cache-set
+          knessy--cache
+          (list :kinds ctx)
+          (knessy--read-buffer-kill buf)))))))
 
 (defun knessy--caches-populate-async ()
-  ;; should check here for cache freshness really, else
-  ;; we'll be issuing too many kubectl calls for each mode activation
-
   (let ((buf (knessy--get-empty-buffer (generate-new-buffer-name "*knessy-cache-contexts*")))
         (buferr (knessy--get-empty-buffer (generate-new-buffer-name "*knessy-cache-contexts-stderr*"))))
     (knessy--shell-exec-async2
@@ -119,9 +141,12 @@
      buf
      buferr
      (lambda ()
-       (setq knessy--cache-contexts (knessy--read-buffer-kill buf))
+       (knessy--cache-set
+        knessy--cache
+        '(:ctx)
+        (knessy--read-buffer-kill buf))
        (knessy--cache-namespaces-populate-async)
-       (knessy--cache-resource-kinds-populate-async)))))
+       (knessy--cache-kinds-populate-async)))))
 
 ;; TODO: kubectl forming commands already becoming dirty, generalize
 ;; TODO: also, resolve the kubeconfig env problem
@@ -160,13 +185,9 @@
 
 
 (comment
- (knessy-cache-clear)
- knessy--cache-contexts
- knessy--cache-namespaces
- knessy--cache-kinds
+ knessy--cache
  (knessy--caches-populate-async)
- (setenv "KUBECONFIG" "/home/pgu/.kube/ttd")
- (knessy--cache-contexts-populate-sync)
+ (setenv "KUBECONFIG" "/home/pgu/.kube/config:/home/pgu/.kube/k8s-local")
  (ht-get knessy--cache-namespaces "wa1-aks-p-01"))
 
 (provide 'knessy-kubectl)

@@ -24,7 +24,7 @@
     (push elt orig)))
 
 (defun knessy--shell-exec-async2 (cmd buf buferr callback)
-  (with-environment-variables (("KUBECONFIG" knessy--kubeconfig))
+  (with-environment-variables (("KUBECONFIG" knessy-kubeconfig))
     (let* ((process (make-process
                      :name "knessy-shell-exec"
                      :command (list "/bin/bash" "-c" cmd)
@@ -50,7 +50,7 @@
   "*knessy-err*")
 
 (defun knessy--shell-exec (cmd buf)
-  (with-environment-variables (("KUBECONFIG" knessy--kubeconfig))
+  (with-environment-variables (("KUBECONFIG" knessy-kubeconfig))
     (shell-command cmd buf (knessy--error-buf))))
 
 ;; TODO: look into (with-temp-buffer) macro instead of using named buffers
