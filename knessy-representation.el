@@ -72,7 +72,7 @@ Specify empty hashtable if no post-processing is desired.
         (setq header-repeated (asoc-get headers :repeated)))
 
       (while (not (eobp))
-        (let ((values (s-split (rx (>= 2 whitespace))
+        (let ((values (s-split (rx (or (>= 2 whitespace) "|"))
                                (s-trim (thing-at-point 'line t))))
               (item (asoc-make))
               (name)
