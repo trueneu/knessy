@@ -79,7 +79,8 @@ Specify empty hashtable if no post-processing is desired.
               ;; TODO: here should be the check if kind is namespaced or not
               (namespace knessy--namespace)
               (kind knessy--kind)
-              (accumulators (ht)))
+              (accumulators (ht))
+              (mixins (ht)))
 
           (dolist (pair (-zip-pair (-concat header-static
                                             (-cycle header-repeated))
@@ -87,17 +88,26 @@ Specify empty hashtable if no post-processing is desired.
             (let* ((key (car pair))
                    (value (cdr pair))
                    (pre-process-asoc (ht-get pre-process-ht key nil))
-                   (pre-process-fn (asoc-get pre-process-asoc :fn))
-                   (pre-process-acc (asoc-get pre-process-asoc :acc 0)))
+                   (pre-process-reduce-fn (asoc-get pre-process-asoc :reduce-fn))
+                   (pre-process-reduce-acc (asoc-get pre-process-asoc :reduce-acc 0))
+                   (pre-process-mixin-fn (asoc-get pre-process-asoc :mixin-fn)))
+              ;; if mixin is enabled, call the fn and put the result into a separate hashtable
+              (if pre-process-mixin-fn
+                  (let* ((mixin (funcall pre-process-mixin-fn value))
+                         (mixin-key (car mixin))
+                         (mixin-value (cdr mixin)))
+                    (ht-set mixins mixin-key mixin-value)))
+
               ;; if pre-processing is enabled for the key, don't put it in the result yet
-              (if pre-process-fn
-                  (let* ((acc (ht-get accumulators key pre-process-acc))
-                         (new-acc (funcall pre-process-fn acc value)))
+              (if pre-process-reduce-fn
+                  (let* ((acc (ht-get accumulators key pre-process-reduce-acc))
+                         (new-acc (funcall pre-process-reduce-fn acc value)))
                     (ht-set accumulators key new-acc))
                 ;; if key is "simple", put as is
                 ;; probably only add it if it's not name/namespace
                 (asoc-put! item key value)
                 ;; TODO: redefine kind here when we support the *ALL* kinds queries
+                ;; TODO: this effectively means we can't pre-process NAME, NAMESPACE or KIND
                 (cond ((s-equals? key "NAME")
                        (setq name value))
                       ;; TODO: if namespace is missing from the output, must grab "current" one
@@ -106,6 +116,9 @@ Specify empty hashtable if no post-processing is desired.
                        (setq namespace value))))))
           ;; then add all the accumulated goodies
           (dolist (kv (ht-items accumulators))
+            (asoc-put! item (car kv) (cadr kv)))
+          ;; and the mixins!
+          (dolist (kv (ht-items mixins))
             (asoc-put! item (car kv) (cadr kv)))
           ;; finally add it to the resulting hashtable
           (ht-set items-ht (cons namespace (cons kind name))

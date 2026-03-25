@@ -2,4 +2,26 @@
 
 (knessy--expand-colons "~/first:~/second:~/third")
 
+(comment
+ (let ((buf (find-file-noselect "test-parse-repeated-columns")))
+   (message (buffer-name buf))
+   (knessy--parse-table-kubectl-output
+    buf
+    '((:static . ("NAMESPACE" "NAME"))
+      (:repeated . ("CPUREQ" "MEMREQ" "CPULIM" "MEMLIM")))
+    (ht ("CPUREQ" `((:reduce-fn . ,(knessy--make-convert-and-add-reduce-fn #'knessy--convert-cpu-units-millis))))
+        ("CPULIM" `((:reduce-fn . ,(knessy--make-convert-and-add-reduce-fn #'knessy--convert-cpu-units-millis))))
+        ("MEMREQ" `((:reduce-fn . ,(knessy--make-convert-and-add-reduce-fn #'knessy--convert-size-units-bytes))))
+        ("MEMLIM" `((:reduce-fn . ,(knessy--make-convert-and-add-reduce-fn #'knessy--convert-size-units-bytes)))))
+    (ht ("CPUREQ" #'knessy--convert-cpu-units-str)
+        ("CPULIM" #'knessy--convert-cpu-units-str)
+        ("MEMREQ" #'knessy--convert-size-units-str)
+        ("MEMLIM" #'knessy--convert-size-units-str)))))
+
+(comment
+ (funcall
+  (knessy--make-convert-and-add-reduce-fn #'knessy--convert-cpu-units-millis)
+  0
+  "20m"))
+
 (provide 'knessy-tests)
