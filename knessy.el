@@ -241,7 +241,7 @@ If omitted, use the current one (for synchronous calls)."
          (buf (knessy--get-empty-buffer (generate-new-buffer-name "*knessy-display*")))
          (buferr (knessy--get-empty-buffer (generate-new-buffer-name "*knessy-display-stderr*"))))
     (knessy--shell-exec-async2
-     "sleep 1 ; kubectl --context minikube -n kube-system get pods"
+     "kubectl --context minikube -n kube-system get deployments"
      buf
      buferr
      (knessy--make-display-callback buf display-buf))))
@@ -267,7 +267,8 @@ If omitted, use the current one (for synchronous calls)."
             (buferr (knessy--get-empty-buffer (generate-new-buffer-name "*knessy-aio-display-stderr*")))
             (headers (asoc-get call :headers nil))
             (pre-process-ht (asoc-get call :pre-process (ht)))
-            (post-process-ht (asoc-get call :post-process (ht))))
+            (post-process-ht (asoc-get call :post-process (ht)))
+            (post-process-item (asoc-get call :post-process-item nil)))
         ;; TODO: clean this up and teach it various call types
         ;; TODO: continue writing the function forming the cmd string probably
         ;; TODO: dispatch table shouldn't depend on the exec style (sync/async), extract it
@@ -276,16 +277,21 @@ If omitted, use the current one (for synchronous calls)."
                                                                       buf
                                                                       headers
                                                                       pre-process-ht
-                                                                      post-process-ht)))))
+                                                                      post-process-ht
+                                                                      post-process-item)))))
           (push promise promises))))
     promises))
 
 (defun knessy--perform-calls-sync (calls)
   (let ((results '()))
     (dolist (call calls)
-      (let ((buf (knessy--get-empty-buffer (generate-new-buffer-name "*knessy-display*"))))
+      (let ((buf (knessy--get-empty-buffer (generate-new-buffer-name "*knessy-display*")))
+            (headers (asoc-get call :headers nil))
+            (pre-process-ht (asoc-get call :pre-process (ht)))
+            (post-process-ht (asoc-get call :post-process (ht)))
+            (post-process-item (asoc-get call :post-process-item nil)))
         (knessy--shell-exec (knessy--call->cmd call knessy--context knessy--namespace knessy--kind) buf)
-        (push (knessy--parse-table-kubectl-output buf) results)))
+        (push (knessy--parse-table-kubectl-output buf headers pre-process-ht post-process-ht post-process-item) results)))
     results))
 
 ;; TODO: finish this!
@@ -300,6 +306,7 @@ Set SYNC to non-nil to make the call synchronous (useful for debugging)."
     (let* ((view (ht-get knessy-views knessy--kind
                          `((:calls . (((:type . ,knessy-call-default-type)))))))
            (calls (asoc-get view :calls))
+           (post-process-fn (asoc-get view :post-process-item nil))
            (results (if sync
                         (knessy--perform-calls-sync calls)
                       (let ((promises (aio-await (knessy--perform-calls-async calls)))
@@ -316,10 +323,7 @@ Set SYNC to non-nil to make the call synchronous (useful for debugging)."
                         columns))
              (widths (ht))
              (items-calls (mapcar (lambda (x) (asoc-get x :items))
-                                  results))
-             (items-first (car items-calls))
-             (items-rest (cdr items-calls)))
-
+                                  results)))
         ;; setup columns + widths
         (dolist (result results)
           ;; if the view misses columns, most likely it's a default view (so display whatever we got with default call)
@@ -330,13 +334,19 @@ Set SYNC to non-nil to make the call synchronous (useful for debugging)."
                   (width (cadr item)))
               (ht-set widths column (max (ht-get widths column 0)
                                          width)))))
-        ;; setup items
-        (apply #'knessy--merge-items items-first items-rest)
-        ;; set the rendering basis DS
-        (setq knessy--data
-              `((:headers . ((:static . ,columns)
-                             (:widths . ,widths)))
-                (:items . ,items-first)))
+        ;; post-process all the items
+        ;; TODO: strictly speaking, widths have to be calculated _after_ this -- new columns may appear here!
+        (let ((merged-items (apply #'ht-merge items-calls)))
+          (mapc
+           (lambda (k)
+             (funcall post-process-fn (ht-get merged-items k)))
+             ;; (ht-update-with! merged-items k post-process-fn))
+           (ht-keys merged-items))
+        ;; set the rendering basis datastructure
+          (setq knessy--data
+                `((:headers . ((:static . ,columns)
+                               (:widths . ,widths)))
+                  (:items . ,merged-items))))
         (message "Resulting knessy data: ")
         (princ knessy--data)
         ;; paint!

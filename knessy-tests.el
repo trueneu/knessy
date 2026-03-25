@@ -9,14 +9,21 @@
     buf
     '((:static . ("NAMESPACE" "NAME"))
       (:repeated . ("CPUREQ" "MEMREQ" "CPULIM" "MEMLIM")))
-    (ht ("CPUREQ" `((:reduce-fn . ,(knessy--make-convert-and-add-reduce-fn #'knessy--convert-cpu-units-millis))))
-        ("CPULIM" `((:reduce-fn . ,(knessy--make-convert-and-add-reduce-fn #'knessy--convert-cpu-units-millis))))
-        ("MEMREQ" `((:reduce-fn . ,(knessy--make-convert-and-add-reduce-fn #'knessy--convert-size-units-bytes))))
-        ("MEMLIM" `((:reduce-fn . ,(knessy--make-convert-and-add-reduce-fn #'knessy--convert-size-units-bytes)))))
+    (ht ("CPUREQ" `((:reduce-fn . ,(knessy--make-convert-and-add-reduce-fn #'knessy--convert-cpu-units-millis))
+                    (:mixin-fn . ,(lambda (v) (when (s-blank? v) (cons "CPUREQNOTSET" t))))))
+        ("CPULIM" `((:reduce-fn . ,(knessy--make-convert-and-add-reduce-fn #'knessy--convert-cpu-units-millis))
+                    (:mixin-fn . ,(lambda (v) (when (s-blank? v) (cons "CPULIMNOTSET" t))))))
+        ("MEMREQ" `((:reduce-fn . ,(knessy--make-convert-and-add-reduce-fn #'knessy--convert-size-units-bytes))
+                    (:mixin-fn . ,(lambda (v) (when (s-blank? v) (cons "MEMREQNOTSET" t))))))
+        ("MEMLIM" `((:reduce-fn . ,(knessy--make-convert-and-add-reduce-fn #'knessy--convert-size-units-bytes))
+                    (:mixin-fn . ,(lambda (v) (when (s-blank? v) (cons "MEMLIMNOTSET" t)))))))
     (ht ("CPUREQ" #'knessy--convert-cpu-units-str)
         ("CPULIM" #'knessy--convert-cpu-units-str)
         ("MEMREQ" #'knessy--convert-size-units-str)
-        ("MEMLIM" #'knessy--convert-size-units-str)))))
+        ("MEMLIM" #'knessy--convert-size-units-str))
+    (lambda (item)
+      (when (ht-get item "CPULIMNOTSET" nil)
+        (message "CPULIMIT NOT SET!"))))))
 
 (comment
  (funcall

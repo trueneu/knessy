@@ -16,7 +16,7 @@
    (length k)))
 
 (cl-defun knessy--parse-table-kubectl-output
-    (buf &optional headers (pre-process-ht (ht)) (post-process-ht (ht)))
+    (buf &optional headers (pre-process-ht (ht)) (post-process-ht (ht)) post-process-fn)
   "Parses buffer BUF of information that was output by a kubectl command,
 into a datastructure to be manipulated further down the road. The result looks
 like this:
@@ -74,7 +74,7 @@ Specify empty hashtable if no post-processing is desired.
       (while (not (eobp))
         (let ((values (s-split (rx (or (>= 2 whitespace) "|"))
                                (s-trim (thing-at-point 'line t))))
-              (item (asoc-make))
+              (item (ht))
               (name)
               ;; TODO: here should be the check if kind is namespaced or not
               (namespace knessy--namespace)
@@ -93,10 +93,11 @@ Specify empty hashtable if no post-processing is desired.
                    (pre-process-mixin-fn (asoc-get pre-process-asoc :mixin-fn)))
               ;; if mixin is enabled, call the fn and put the result into a separate hashtable
               (if pre-process-mixin-fn
-                  (let* ((mixin (funcall pre-process-mixin-fn value))
-                         (mixin-key (car mixin))
-                         (mixin-value (cdr mixin)))
-                    (ht-set mixins mixin-key mixin-value)))
+                  (let* ((mixin (funcall pre-process-mixin-fn value)))
+                    (if mixin
+                        (let ((mixin-key (car mixin))
+                              (mixin-value (cdr mixin)))
+                          (ht-set mixins mixin-key mixin-value)))))
 
               ;; if pre-processing is enabled for the key, don't put it in the result yet
               (if pre-process-reduce-fn
@@ -105,7 +106,7 @@ Specify empty hashtable if no post-processing is desired.
                     (ht-set accumulators key new-acc))
                 ;; if key is "simple", put as is
                 ;; probably only add it if it's not name/namespace
-                (asoc-put! item key value)
+                (ht-set item key value)
                 ;; TODO: redefine kind here when we support the *ALL* kinds queries
                 ;; TODO: this effectively means we can't pre-process NAME, NAMESPACE or KIND
                 (cond ((s-equals? key "NAME")
@@ -116,20 +117,26 @@ Specify empty hashtable if no post-processing is desired.
                        (setq namespace value))))))
           ;; then add all the accumulated goodies
           (dolist (kv (ht-items accumulators))
-            (asoc-put! item (car kv) (cadr kv)))
+            (ht-set item (car kv) (cadr kv)))
           ;; and the mixins!
           (dolist (kv (ht-items mixins))
-            (asoc-put! item (car kv) (cadr kv)))
+            (ht-set item (car kv) (cadr kv)))
+          ;; post-process columns
+          (dolist (kv (ht-items post-process-ht))
+            (let ((k (car kv))
+                  (fn (cadr kv)))
+              (ht-update-with! item k fn)))
+          ;; post-process item
+          (if post-process-fn
+              (funcall post-process-fn item))
+          ;; update widths for strings
+          (dolist (kv (ht-items item))
+            (let ((k (car kv))
+                  (v (cadr kv)))
+              (when (stringp v)
+                (knessy--update-columns-max-width widths-ht k v))))
           ;; finally add it to the resulting hashtable
-          (ht-set items-ht (cons namespace (cons kind name))
-                  ;; post-process just before adding
-                  (asoc-map (lambda (k v)
-                             (let* ((post-process-fn (ht-get post-process-ht k nil))
-                                    (v-new (if post-process-fn (funcall post-process-fn v) v)))
-                               ;; update max-column-width
-                               (knessy--update-columns-max-width widths-ht k v-new)
-                               (cons k v-new)))
-                            item)))
+          (ht-set items-ht (cons namespace (cons kind name)) item))
         (forward-line 1)))
     (let ((result `((:items . ,items-ht)
                     (:headers . ((:static . ,header-static)
@@ -191,8 +198,8 @@ Specify empty hashtable if no post-processing is desired.
       (lambda (column)
         (prog1
           (list column
-                ;; TODO: this 5 has to be customizable
-                (+ 5 (ht-get widths column))
+                ;; TODO: this 5 and 6 have to be customizable
+                (+ 5 (ht-get widths column 6))
                 (cond ((s-equals? "RESTARTS" column)
                        (knessy--make-comparator-restarts-time column-counter))
                       (t
@@ -203,14 +210,18 @@ Specify empty hashtable if no post-processing is desired.
 (defun knessy--propertize-name (id name)
   (if (ht-get knessy--marked id nil)
       ;; TODO: face should be customizable
-      (propertize name 'face 'dired-marked)
+      (progn
+        (princ "Marking: ")
+        (princ id)
+        (princ "\n")
+        (propertize name 'face 'dired-marked))
     name))
 
 (defun knessy--make-tablist-entries (columns items)
   (mapcar
    (lambda (item)
      (let ((id (car item))
-           (alist (cadr item)))
+           (table (cadr item)))
        (list
         id
         (apply
@@ -218,7 +229,7 @@ Specify empty hashtable if no post-processing is desired.
          (mapcar
           (lambda (column)
             ;; TODO: maybe extract this to a separate dispatch table of some sorts
-            (let ((value (asoc-get alist column)))
+            (let ((value (ht-get table column "??")))
               (cond
                ((s-equals? "NAME" column)
                 (knessy--propertize-name id value))
@@ -232,7 +243,7 @@ Specify empty hashtable if no post-processing is desired.
   (setq tabulated-list-format (knessy--make-tablist-format columns widths))
   (setq tabulated-list-entries (knessy--make-tablist-entries columns items))
   (tabulated-list-init-header)
-  (tabulated-list-print t t))
+  (tabulated-list-print t))
 
 
 (comment
