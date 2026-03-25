@@ -8,6 +8,7 @@
       (message (format "converted %s to %d!" val converted))
       (+ acc converted))))
 
+;; TODO: idea: introduce column-rename kv, just to rename stuff from default :get call
 (defcustom knessy-views
   (ht ("pods" `((:columns . ("NAME" "CPU(r)" "CPU(l)" "MEM(r)" "MEM(l)"))
                 (:calls . (((:type . :jsonpath)
@@ -30,19 +31,19 @@
                 (:post-process-item . ,(lambda (item)
                                          (ht-set item "CPU(r)"
                                                  (if (ht-get item "CPUREQNOTSET" nil)
-                                                     "N/A"
+                                                     "?"
                                                    (ht-get item "CPUREQ")))
                                          (ht-set item "MEM(r)"
                                                  (if (ht-get item "MEMREQNOTSET" nil)
-                                                     "N/A"
+                                                     "?"
                                                    (ht-get item "MEMREQ")))
                                          (ht-set item "CPU(l)"
                                                  (if (ht-get item "CPULIMNOTSET" nil)
-                                                     "N/A"
+                                                     "?"
                                                    (ht-get item "CPULIM")))
                                          (ht-set item "MEM(l)"
                                                  (if (ht-get item "MEMLIMNOTSET" nil)
-                                                     "N/A"
+                                                     "?"
                                                    (ht-get item "MEMLIM"))))))))
 
 

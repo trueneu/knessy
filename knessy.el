@@ -329,6 +329,7 @@ Set SYNC to non-nil to make the call synchronous (useful for debugging)."
           ;; if the view misses columns, most likely it's a default view (so display whatever we got with default call)
           (unless columns
             (setq columns (-> result (asoc-get :headers) (asoc-get :static))))
+          ;; TODO: get rid of this
           (dolist (item (ht-items (-> result (asoc-get :headers) (asoc-get :widths))))
             (let ((column (car item))
                   (width (cadr item)))
@@ -336,13 +337,15 @@ Set SYNC to non-nil to make the call synchronous (useful for debugging)."
                                          width)))))
         ;; post-process all the items
         ;; TODO: strictly speaking, widths have to be calculated _after_ this -- new columns may appear here!
-        (let ((merged-items (apply #'ht-merge items-calls)))
+        ;; TODO: get rid of widths calculation in parsing stage
+        ;; TODO: actually maybe set widths explicitly to avoid reading every single column again?
+        (let ((merged-items (apply #'ht-merge items-calls))
+              (widths (ht)))
           (mapc
            (lambda (k)
              (funcall post-process-fn (ht-get merged-items k)))
-             ;; (ht-update-with! merged-items k post-process-fn))
            (ht-keys merged-items))
-        ;; set the rendering basis datastructure
+          ;; set the rendering basis datastructure
           (setq knessy--data
                 `((:headers . ((:static . ,columns)
                                (:widths . ,widths)))
