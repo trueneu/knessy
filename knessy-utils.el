@@ -17,7 +17,7 @@ in-place, the old list reference does not remain valid."
 
 (comment
  (let ((l '(1 2 3)))
-   (knessy--insert-into-list l 99 (-elem-index 2 l))))
+   (knessy--insert-into-list l 99 (-elem-index 1 l))))
 
 ;; TODO: maybe this helper is not needed with generate-new-buffer-name
 (defun knessy--get-empty-buffer (buffer-name)

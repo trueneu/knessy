@@ -189,7 +189,8 @@ in Knessy mode, else lists all existing buffers."
   (interactive)
   (setq knessy--namespace
         (completing-read "Namespace: "
-                         (knessy--namespaces))))
+                         (knessy--namespaces)))
+  (knessy--namespace-current-all?-update))
 
 
 ;; TODO: *all*!
@@ -262,32 +263,28 @@ If omitted, use the current one (for synchronous calls)."
   (let ((promises '())
         (resolved '()))
     (dolist (call calls)
-      (let ((type (asoc-get call :type))
-            (buf (knessy--get-empty-buffer (generate-new-buffer-name "*knessy-aio-display*")))
-            (buferr (knessy--get-empty-buffer (generate-new-buffer-name "*knessy-aio-display-stderr*"))))
+      (let ((buf (knessy--get-empty-buffer (generate-new-buffer-name "*knessy-aio-display*")))
+            (buferr (knessy--get-empty-buffer (generate-new-buffer-name "*knessy-aio-display-stderr*")))
+            (headers (asoc-get call :headers nil))
+            (pre-process-ht (asoc-get call :pre-process (ht)))
+            (post-process-ht (asoc-get call :post-process (ht))))
         ;; TODO: clean this up and teach it various call types
         ;; TODO: continue writing the function forming the cmd string probably
         ;; TODO: dispatch table shouldn't depend on the exec style (sync/async), extract it
-        (let ((promise (cond ((eq :get-wide type)
-                              (knessy--shell-exec-aio (knessy--kubectl-cmd-get knessy--context knessy--namespace knessy--kind "wide") buf buferr (lambda () (knessy--parse-table-kubectl-output buf))))
-                             ((eq :get type)
-                              (knessy--shell-exec-aio (knessy--kubectl-cmd-get knessy--context knessy--namespace knessy--kind) buf buferr (lambda () (knessy--parse-table-kubectl-output buf))))
-                             ((eq :custom-columns type)
-                              (knessy--shell-exec-aio (knessy--kubectl-cmd-get knessy--context knessy--namespace knessy--kind (s-concat "custom-columns=" (asoc-get call :spec))) buf buferr (lambda () (knessy--parse-table-kubectl-output buf)))))))
+        (let ((promise (knessy--shell-exec-aio (knessy--call->cmd call knessy--context knessy--namespace knessy--kind)
+                                               buf buferr (lambda () (knessy--parse-table-kubectl-output
+                                                                      buf
+                                                                      headers
+                                                                      pre-process-ht
+                                                                      post-process-ht)))))
           (push promise promises))))
     promises))
 
 (defun knessy--perform-calls-sync (calls)
   (let ((results '()))
     (dolist (call calls)
-      (let ((type (asoc-get call :type))
-            (buf (knessy--get-empty-buffer (generate-new-buffer-name "*knessy-display*"))))
-        (cond ((eq :get-wide type)
-               (knessy--shell-exec (knessy--kubectl-cmd-get knessy--context knessy--namespace knessy--kind "wide") buf))
-              ((eq :get type)
-               (knessy--shell-exec (knessy--kubectl-cmd-get knessy--context knessy--namespace knessy--kind) buf))
-              ((eq :custom-columns type)
-               (knessy--shell-exec (knessy--kubectl-cmd-get knessy--context knessy--namespace knessy--kind (s-concat "custom-columns=" (asoc-get call :spec))) buf)))
+      (let ((buf (knessy--get-empty-buffer (generate-new-buffer-name "*knessy-display*"))))
+        (knessy--shell-exec (knessy--call->cmd call knessy--context knessy--namespace knessy--kind) buf)
         (push (knessy--parse-table-kubectl-output buf) results)))
     results))
 
@@ -340,6 +337,7 @@ Set SYNC to non-nil to make the call synchronous (useful for debugging)."
               `((:headers . ((:static . ,columns)
                              (:widths . ,widths)))
                 (:items . ,items-first)))
+        (message "Resulting knessy data: ")
         (princ knessy--data)
         ;; paint!
         (knessy--repaint display-buf)))))
@@ -390,6 +388,13 @@ Set SYNC to non-nil to make the call synchronous (useful for debugging)."
   (knessy--caches-populate-async)
   ;; FIXME: this actually breaks stuff, global hook -- let's override revert for Knessy buffers?
   ;; (add-hook 'tabulated-list-revert-hook #'knessy--display-aio)
+  (add-to-list 'mode-line-misc-info
+               '(:eval
+                 (when (eq 'knessy-mode (knessy--buffer-mode))
+                   (format "%s/%s/%s"
+                           knessy--context
+                           knessy--namespace
+                           knessy--kind))))
   (run-mode-hooks 'knessy-mode-hook))
 
 ;; TODO: next thing, implement data <-> display link to hash out the data architecture

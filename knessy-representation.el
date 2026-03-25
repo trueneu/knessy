@@ -47,8 +47,18 @@ Specify empty hashtable if no post-processing is desired.
   (let ((header-static)
         (header-repeated)
         (items-ht (ht))
-        (widths-ht (ht)))
+        (widths-ht (ht))
+        ;; TODO: this looks kinda ugly, maybe just pass it in a fat "context" variable?
+        (knessy--context-orig knessy--context)
+        (knessy--namespace-orig knessy--namespace)
+        (knessy--kind-orig knessy--kind)
+        (knessy--namespace-current-all?-orig knessy--namespace-current-all?))
     (with-current-buffer buf
+      (setq knessy--context knessy--context-orig)
+      (setq knessy--namespace knessy--namespace-orig)
+      (setq knessy--kind knessy--kind-orig)
+      ;; TODO: maybe just call a function there
+      (setq knessy--namespace-current-all? knessy--namespace-current-all?-orig)
       (goto-char (point-min))
 
       (if (not headers)
@@ -87,7 +97,7 @@ Specify empty hashtable if no post-processing is desired.
                 ;; if key is "simple", put as is
                 ;; probably only add it if it's not name/namespace
                 (asoc-put! item key value)
-                ;; TODO: redefine kind here when the time comes
+                ;; TODO: redefine kind here when we support the *ALL* kinds queries
                 (cond ((s-equals? key "NAME")
                        (setq name value))
                       ;; TODO: if namespace is missing from the output, must grab "current" one
@@ -108,10 +118,14 @@ Specify empty hashtable if no post-processing is desired.
                                (cons k v-new)))
                             item)))
         (forward-line 1)))
-    `((:items . ,items-ht)
-      (:headers . ((:static . ,header-static)
-                   (:repeated . ,header-repeated)
-                   (:widths . ,widths-ht))))))
+    (let ((result `((:items . ,items-ht)
+                    (:headers . ((:static . ,header-static)
+                                 (:repeated . ,header-repeated)
+                                 (:widths . ,widths-ht))))))
+      (message "Parsed results:")
+      (princ result)
+      result)))
+
 
 (comment
  (aio-wait-for (knessy--aio-display))
@@ -204,9 +218,9 @@ Specify empty hashtable if no post-processing is desired.
 
   (setq tabulated-list-format (knessy--make-tablist-format columns widths))
   (setq tabulated-list-entries (knessy--make-tablist-entries columns items))
-
   (tabulated-list-init-header)
   (tabulated-list-print t t))
+
 
 (comment
  (knessy--make-tablist '("NAME" "NAMESPACE") nil)

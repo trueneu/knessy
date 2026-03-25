@@ -21,6 +21,16 @@
     (message cmd)
     cmd))
 
+(defun knessy--call->cmd (call ctx namespace kind)
+  (let ((type (asoc-get call :type)))
+    (cond ((eq :get-wide type)
+           (knessy--kubectl-cmd-get ctx namespace kind "wide"))
+          ((eq :get type)
+           (knessy--kubectl-cmd-get ctx namespace kind))
+          ((eq :custom-columns type)
+           (knessy--kubectl-cmd-get ctx namespace kind (s-concat "custom-columns=" (asoc-get call :spec))))
+          ((eq :jsonpath type)
+           (knessy--kubectl-cmd-get ctx namespace kind (s-concat "jsonpath=" (asoc-get call :spec)))))))
 
 (comment
  (knessy--kubectl-cmd-get "pods" "*ALL*" "json"))
