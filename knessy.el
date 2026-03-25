@@ -321,26 +321,28 @@ Set SYNC to non-nil to make the call synchronous (useful for debugging)."
                           (knessy--insert-into-list
                            columns "NAMESPACE" (-elem-index "NAME" columns))
                         columns))
-             (widths (ht))
+             (widths (ht-merge (asoc-get view :widths (ht))
+                               knessy-column-widths))
              (items-calls (mapcar (lambda (x) (asoc-get x :items))
                                   results)))
+        ;; TODO: this loop isn't really needed is it?
         ;; setup columns + widths
         (dolist (result results)
           ;; if the view misses columns, most likely it's a default view (so display whatever we got with default call)
           (unless columns
-            (setq columns (-> result (asoc-get :headers) (asoc-get :static))))
+            (setq columns (-> result (asoc-get :headers) (asoc-get :static)))))
           ;; TODO: get rid of this
-          (dolist (item (ht-items (-> result (asoc-get :headers) (asoc-get :widths))))
-            (let ((column (car item))
-                  (width (cadr item)))
-              (ht-set widths column (max (ht-get widths column 0)
-                                         width)))))
+          ;; (dolist (item (ht-items (-> result (asoc-get :headers) (asoc-get :widths))))
+          ;;   (let ((column (car item))
+          ;;         (width (cadr item)))
+          ;;     (ht-set widths column (max (ht-get widths column 0)
+          ;;                                width)))))
+
         ;; post-process all the items
         ;; TODO: strictly speaking, widths have to be calculated _after_ this -- new columns may appear here!
         ;; TODO: get rid of widths calculation in parsing stage
         ;; TODO: actually maybe set widths explicitly to avoid reading every single column again?
-        (let ((merged-items (apply #'ht-merge items-calls))
-              (widths (ht)))
+        (let ((merged-items (apply #'ht-merge items-calls)))
           (mapc
            (lambda (k)
              (funcall post-process-fn (ht-get merged-items k)))

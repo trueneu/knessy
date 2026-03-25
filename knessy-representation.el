@@ -199,7 +199,7 @@ Specify empty hashtable if no post-processing is desired.
         (prog1
           (list column
                 ;; TODO: this 5 and 6 have to be customizable
-                (+ 5 (ht-get widths column 6))
+                (+ knessy-default-column-width (ht-get widths column 6))
                 (cond ((s-equals? "RESTARTS" column)
                        (knessy--make-comparator-restarts-time column-counter))
                       (t

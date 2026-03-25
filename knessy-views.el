@@ -8,9 +8,22 @@
       (message (format "converted %s to %d!" val converted))
       (+ acc converted))))
 
+(defcustom knessy-default-column-width
+  5
+  "Default column width."
+  :type 'integer
+  :group 'knessy)
+
+(defcustom knessy-column-widths
+  (ht ("NAME" 32))
+  "Column widths by column name."
+  :type 'sexp
+  :group 'knessy)
+
 ;; TODO: idea: introduce column-rename kv, just to rename stuff from default :get call
 (defcustom knessy-views
   (ht ("pods" `((:columns . ("NAME" "CPU(r)" "CPU(l)" "MEM(r)" "MEM(l)"))
+                (:widths . ,(ht ("NAME" 10)))
                 (:calls . (((:type . :jsonpath)
                             (:spec . "'{range .items[*]}{.metadata.namespace}|{.metadata.name}{range .spec.containers[*]}|{.resources.requests.cpu}|{.resources.requests.memory}|{.resources.limits.cpu}|{.resources.limits.memory}{end}{\"\\n\"}{end}'")
                             (:headers . ((:static . ("NAMESPACE" "NAME"))
