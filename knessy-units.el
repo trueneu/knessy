@@ -91,8 +91,6 @@ If either is null, or y == 0, return \"N/A\""
       "N/A"
     (substring-no-properties (format "%.0f%%" (/ x y 0.01)))))
 
-;; TODO: finish this
-
 (defun knessy--convert-time-units-seconds (s)
   "Convert a string representing time to seconds integer.
 

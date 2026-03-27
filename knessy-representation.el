@@ -176,16 +176,15 @@ Specify empty hashtable if no post-processing is desired.
   (dolist (table more items-ht)
     (dolist (k (ht-keys items-ht))
       (ht-update-with! items-ht k
-                       (lambda (alist)
-                         (asoc-merge alist (ht-get table k)))))))
+                       (lambda (item-entry)
+                         (ht-merge item-entry (ht-get table k)))))))
 
 (comment
- (let ((h (ht (:a '((:k . :v))) (1 '((2 . 3))))))
-   (knessy--merge-items
-    h
-    (ht (:a '((:k2 . :v2)))
-        (1 '((3 . 4)))))
-   h))
+ (let* ((item1 (ht (:key1 :value1)))
+        (item2 (ht (:key2 :value2)))
+        (ht1 (ht (:item item1)))
+        (ht2 (ht (:item item2))))
+   (knessy--merge-items ht1 ht2)))
 
 ;; TODO: we're going to need to pre-compute the column-numbers beforehand
 ;; to implement multi-column sorting, instead of calculating them as we go
@@ -218,7 +217,7 @@ Specify empty hashtable if no post-processing is desired.
         (propertize name 'face 'dired-marked))
     name))
 
-(defun knessy--make-tablist-entries (columns items)
+(defun knessy--make-tablist-entries (columns rename items)
   (mapcar
    (lambda (item)
      (let ((id (car item))
@@ -230,7 +229,7 @@ Specify empty hashtable if no post-processing is desired.
          (mapcar
           (lambda (column)
             ;; TODO: maybe extract this to a separate dispatch table of some sorts
-            (let ((value (ht-get table column "??")))
+            (let ((value (ht-get table (ht-get rename column column) "??")))
               (cond
                ((s-equals? "NAME" column)
                 (knessy--propertize-name id value))
@@ -239,11 +238,15 @@ Specify empty hashtable if no post-processing is desired.
    (ht-items items)))
 
 ;; TODO: most likely this will be called in the target buffer already
-(defun knessy--make-tablist (columns items widths)
+(defun knessy--make-tablist (columns rename items widths)
 
   (setq tabulated-list-format (knessy--make-tablist-format columns widths))
-  (setq tabulated-list-entries (knessy--make-tablist-entries columns items))
+  (setq tabulated-list-entries (knessy--make-tablist-entries columns rename items))
   (tabulated-list-init-header)
+  (princ "FORMAT\n")
+  (princ tabulated-list-format)
+  (princ "\nENTRIES\n")
+  (princ tabulated-list-entries)
   (tabulated-list-print t))
 
 

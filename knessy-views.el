@@ -14,17 +14,21 @@
 
 ;; TODO: make this an alist?
 (defcustom knessy-column-widths
-  (ht ("NAME" 32))
+  (ht ("NAME" 32)
+      ("CPU(r)" 7)
+      ("MEM(r)" 7)
+      ("CPU(l)" 7)
+      ("MEM(l)" 7))
   "Column widths by column name."
   :type 'sexp
   :group 'knessy)
 
 ;; TODO: make all structures alists again?.. since they're faster than ht, except items collection maybe
 
-;; TODO: idea: introduce column-rename kv, just to rename stuff from default :get call
 (defcustom knessy-views
   (ht ("pods" `((:columns . ("NAME" "CPU(r)" "CPU(l)" "MEM(r)" "MEM(l)"))
-                (:widths . ,(ht ("NAME" 10)))
+                (:column-rename . ,(ht))
+                (:widths . ,(ht ("NAME" 32)))
                 (:calls . (((:type . :jsonpath)
                             (:spec . "'{range .items[*]}{.metadata.namespace}|{.metadata.name}{range .spec.containers[*]}|{.resources.requests.cpu}|{.resources.requests.memory}|{.resources.limits.cpu}|{.resources.limits.memory}{end}{\"\\n\"}{end}'")
                             (:headers . ((:static . ("NAMESPACE" "NAME"))
@@ -41,7 +45,13 @@
                                                   ("CPULIM" #'knessy--convert-cpu-units-str)
                                                   ("MEMREQ" #'knessy--convert-size-units-str)
                                                   ("MEMLIM" #'knessy--convert-size-units-str)))
-                            (:post-process-item . ,(lambda (item) (message "Called post-process for an item!"))))))
+                            (:post-process-item . ,(lambda (item) (message "Called post-process for an item!"))))
+                           ((:type . :top)
+                            (:pre-process . ,(ht ("CPU(cores)" `((:reduce-fn . ,(knessy--make-convert-and-add-reduce-fn #'knessy--convert-cpu-units-millis))))
+                                                 ("MEMORY(bytes)" `((:reduce-fn . ,(knessy--make-convert-and-add-reduce-fn #'knessy--convert-size-units-bytes))))))
+                            (:post-process . ,(ht ("CPU(cores)" #'knessy--convert-cpu-units-str)
+                                                  ("MEMORY(bytes)" #'knessy--convert-size-units-str))))))
+
                 (:post-process-item . ,(lambda (item)
                                          (ht-set item "CPU(r)"
                                                  (if (ht-get item "CPUREQNOTSET" nil)

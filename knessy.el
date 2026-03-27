@@ -227,9 +227,10 @@ BUF is buffer with the table, must be in Knessy mode.
 If omitted, use the current one (for synchronous calls)."
   (with-current-buffer (if buf buf (current-buffer))
     (let ((columns (-> knessy--data (asoc-get :headers) (asoc-get :static)))
+          (rename (-> knessy--data (asoc-get :headers) (asoc-get :rename)))
           (widths (-> knessy--data (asoc-get :headers) (asoc-get :widths)))
           (items (asoc-get knessy--data :items)))
-      (knessy--make-tablist columns items widths)))
+      (knessy--make-tablist columns rename items widths)))
   (message "Repainted!"))
 
 ;; TODO: make this display use aio for giggles!
@@ -268,11 +269,12 @@ If omitted, use the current one (for synchronous calls)."
             (headers (asoc-get call :headers nil))
             (pre-process-ht (asoc-get call :pre-process (ht)))
             (post-process-ht (asoc-get call :post-process (ht)))
-            (post-process-item (asoc-get call :post-process-item nil)))
+            (post-process-item (asoc-get call :post-process-item nil))
+            (kind (asoc-get call :resource knessy--kind)))
         ;; TODO: clean this up and teach it various call types
         ;; TODO: continue writing the function forming the cmd string probably
         ;; TODO: dispatch table shouldn't depend on the exec style (sync/async), extract it
-        (let ((promise (knessy--shell-exec-aio (knessy--call->cmd call knessy--context knessy--namespace knessy--kind)
+        (let ((promise (knessy--shell-exec-aio (knessy--call->cmd call knessy--context knessy--namespace kind)
                                                buf buferr (lambda () (knessy--parse-table-kubectl-output
                                                                       buf
                                                                       headers
@@ -289,8 +291,9 @@ If omitted, use the current one (for synchronous calls)."
             (headers (asoc-get call :headers nil))
             (pre-process-ht (asoc-get call :pre-process (ht)))
             (post-process-ht (asoc-get call :post-process (ht)))
-            (post-process-item (asoc-get call :post-process-item nil)))
-        (knessy--shell-exec (knessy--call->cmd call knessy--context knessy--namespace knessy--kind) buf)
+            (post-process-item (asoc-get call :post-process-item nil))
+            (kind (asoc-get call :kind knessy--kind)))
+        (knessy--shell-exec (knessy--call->cmd call knessy--context knessy--namespace kind) buf)
         (push (knessy--parse-table-kubectl-output buf headers pre-process-ht post-process-ht post-process-item) results)))
     results))
 
@@ -321,8 +324,9 @@ Set SYNC to non-nil to make the call synchronous (useful for debugging)."
                           (knessy--insert-into-list
                            columns "NAMESPACE" (-elem-index "NAME" columns))
                         columns))
-             (widths (ht-merge (asoc-get view :widths (ht))
-                               knessy-column-widths))
+             (column-rename (asoc-get view :column-rename (ht)))
+             (widths (ht-merge knessy-column-widths (asoc-get view :widths (ht))))
+
              (items-calls (mapcar (lambda (x) (asoc-get x :items))
                                   results)))
         ;; TODO: knessy mode should be "remembering" widths if adjusted by hand
@@ -331,6 +335,9 @@ Set SYNC to non-nil to make the call synchronous (useful for debugging)."
         ;; TODO: this loop isn't really needed is it?
         ;; setup columns
         (dolist (result results)
+          (princ "RESULT: \n")
+          (princ result)
+          (princ "\n")
           ;; if the view misses columns, most likely it's a default view (so display whatever we got with default call)
           (unless columns
             (setq columns (-> result (asoc-get :headers) (asoc-get :static)))))
@@ -343,9 +350,9 @@ Set SYNC to non-nil to make the call synchronous (useful for debugging)."
 
         ;; post-process all the items
         ;; TODO: strictly speaking, widths have to be calculated _after_ this -- new columns may appear here!
-        ;; TODO: get rid of widths calculation in parsing stage
+        ;; TODO: get rid of widths calculation in parsing stage?
         ;; TODO: actually maybe set widths explicitly to avoid reading every single column again?
-        (let ((merged-items (apply #'ht-merge items-calls)))
+        (let ((merged-items (apply #'knessy--merge-items items-calls)))
           (when post-process-fn
             (mapc
              (lambda (k)
@@ -354,10 +361,11 @@ Set SYNC to non-nil to make the call synchronous (useful for debugging)."
           ;; set the rendering basis datastructure
           (setq knessy--data
                 `((:headers . ((:static . ,columns)
-                               (:widths . ,widths)))
+                               (:widths . ,widths)
+                               (:rename . ,column-rename)))
                   (:items . ,merged-items))))
-        ;; (message "Resulting knessy data: ")
-        ;; (princ knessy--data)
+        (message "Resulting knessy data: ")
+        (princ knessy--data)
         ;; paint!
         (knessy--repaint display-buf)))))
 

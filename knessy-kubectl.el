@@ -4,14 +4,14 @@
   (ht)
   "Caches everything.")
 
-(defun knessy--kubectl-cmd-get (ctx namespace kind &optional fmt)
+(defun knessy--kubectl-cmd-verb-kind (ctx namespace verb kind &optional fmt)
   (let ((cmd (s-concat
               knessy-kubectl
               " --context " ctx
               (if (knessy--namespace-all? namespace)
                   ""
                 (s-concat " -n " namespace))
-              " get "  kind
+              " " verb " "  kind
               (if (knessy--namespace-all? namespace)
                   " -A"
                 "")
@@ -24,16 +24,18 @@
 (defun knessy--call->cmd (call ctx namespace kind)
   (let ((type (asoc-get call :type)))
     (cond ((eq :get-wide type)
-           (knessy--kubectl-cmd-get ctx namespace kind "wide"))
+           (knessy--kubectl-cmd-verb-kind ctx namespace "get" kind "wide"))
           ((eq :get type)
-           (knessy--kubectl-cmd-get ctx namespace kind))
+           (knessy--kubectl-cmd-verb-kind ctx namespace "get" kind))
           ((eq :custom-columns type)
-           (knessy--kubectl-cmd-get ctx namespace kind (s-concat "custom-columns=" (asoc-get call :spec))))
+           (knessy--kubectl-cmd-verb-kind ctx namespace "get" kind (s-concat "custom-columns=" (asoc-get call :spec))))
           ((eq :jsonpath type)
-           (knessy--kubectl-cmd-get ctx namespace kind (s-concat "jsonpath=" (asoc-get call :spec)))))))
+           (knessy--kubectl-cmd-verb-kind ctx namespace "get" kind (s-concat "jsonpath=" (asoc-get call :spec))))
+          ((eq :top type)
+           (knessy--kubectl-cmd-verb-kind ctx namespace "top" kind)))))
 
 (comment
- (knessy--kubectl-cmd-get "pods" "*ALL*" "json"))
+ (knessy--kubectl-cmd-verb-kind "pods" "*ALL*" "json"))
 
 
 ;; TODO: can generalize this to readlines and save to a list
