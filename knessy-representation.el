@@ -81,16 +81,15 @@ Specify empty hashtable if no post-processing is desired.
               (kind knessy--kind)
               (accumulators (ht))
               (mixins (ht)))
-
           (dolist (pair (-zip-pair (-concat header-static
                                             (-cycle header-repeated))
                                    values))
             (let* ((key (car pair))
                    (value (cdr pair))
                    (pre-process-asoc (ht-get pre-process-ht key nil))
-                   (pre-process-reduce-fn (asoc-get pre-process-asoc :reduce-fn))
+                   (pre-process-reduce-fn (asoc-get pre-process-asoc :reduce-fn nil))
                    (pre-process-reduce-acc (asoc-get pre-process-asoc :reduce-acc 0))
-                   (pre-process-mixin-fn (asoc-get pre-process-asoc :mixin-fn)))
+                   (pre-process-mixin-fn (asoc-get pre-process-asoc :mixin-fn nil)))
               ;; if mixin is enabled, call the fn and put the result into a separate hashtable
               (if pre-process-mixin-fn
                   (let* ((mixin (funcall pre-process-mixin-fn value)))
@@ -115,6 +114,7 @@ Specify empty hashtable if no post-processing is desired.
                       ;; but only if it's a namespaced resource
                       ((s-equals? key "NAMESPACE")
                        (setq namespace value))))))
+
           ;; then add all the accumulated goodies
           (dolist (kv (ht-items accumulators))
             (ht-set item (car kv) (cadr kv)))
@@ -127,23 +127,25 @@ Specify empty hashtable if no post-processing is desired.
                   (fn (cadr kv)))
               (ht-update-with! item k fn)))
           ;; post-process item
-          (if post-process-fn
-              (funcall post-process-fn item))
+          (when post-process-fn
+            (funcall post-process-fn item))
           ;; update widths for strings
-          (dolist (kv (ht-items item))
-            (let ((k (car kv))
-                  (v (cadr kv)))
-              (when (stringp v)
-                (knessy--update-columns-max-width widths-ht k v))))
+          ;; FIXME: if it's needed, it can be returned; + result :headers :widths HASHTABLE
+          ;; (dolist (kv (ht-items item))
+          ;;   (let ((k (car kv))
+          ;;         (v (cadr kv)))
+          ;;     (when (stringp v)
+          ;;       (knessy--update-columns-max-width widths-ht k v))))
           ;; finally add it to the resulting hashtable
           (ht-set items-ht (cons namespace (cons kind name)) item))
         (forward-line 1)))
     (let ((result `((:items . ,items-ht)
                     (:headers . ((:static . ,header-static)
-                                 (:repeated . ,header-repeated)
-                                 (:widths . ,widths-ht))))))
-      (message "Parsed results:")
-      (princ result)
+                                 (:repeated . ,header-repeated))))))
+      ;; TODO: come up with debug toggles to turn this off and on again
+      ;; (message "Parsed results:")
+      ;; (princ result)
+
       result)))
 
 
@@ -198,8 +200,7 @@ Specify empty hashtable if no post-processing is desired.
       (lambda (column)
         (prog1
           (list column
-                ;; TODO: this 5 and 6 have to be customizable
-                (+ knessy-default-column-width (ht-get widths column 6))
+                (ht-get widths column knessy-default-column-width)
                 (cond ((s-equals? "RESTARTS" column)
                        (knessy--make-comparator-restarts-time column-counter))
                       (t

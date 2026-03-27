@@ -1,11 +1,9 @@
 ;; -*- lexical-binding: t; -*-
 
-;; TODO: add pre-post-processing
 ;; TODO: test on a cluster with metrics plugin enabled (minikube?)
 (defun knessy--make-convert-and-add-reduce-fn (conversion-fn)
   (lambda (acc val)
     (let ((converted (funcall conversion-fn val)))
-      (message (format "converted %s to %d!" val converted))
       (+ acc converted))))
 
 (defcustom knessy-default-column-width
@@ -14,11 +12,14 @@
   :type 'integer
   :group 'knessy)
 
+;; TODO: make this an alist?
 (defcustom knessy-column-widths
   (ht ("NAME" 32))
   "Column widths by column name."
   :type 'sexp
   :group 'knessy)
+
+;; TODO: make all structures alists again?.. since they're faster than ht, except items collection maybe
 
 ;; TODO: idea: introduce column-rename kv, just to rename stuff from default :get call
 (defcustom knessy-views

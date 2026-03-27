@@ -325,13 +325,16 @@ Set SYNC to non-nil to make the call synchronous (useful for debugging)."
                                knessy-column-widths))
              (items-calls (mapcar (lambda (x) (asoc-get x :items))
                                   results)))
+        ;; TODO: knessy mode should be "remembering" widths if adjusted by hand
+        ;; (princ "widths:")
+        ;; (princ widths)
         ;; TODO: this loop isn't really needed is it?
-        ;; setup columns + widths
+        ;; setup columns
         (dolist (result results)
           ;; if the view misses columns, most likely it's a default view (so display whatever we got with default call)
           (unless columns
             (setq columns (-> result (asoc-get :headers) (asoc-get :static)))))
-          ;; TODO: get rid of this
+          ;; FIXME: this should gather max widths from parsing first, but then merge with configured widths as lowest priority
           ;; (dolist (item (ht-items (-> result (asoc-get :headers) (asoc-get :widths))))
           ;;   (let ((column (car item))
           ;;         (width (cadr item)))
@@ -343,17 +346,18 @@ Set SYNC to non-nil to make the call synchronous (useful for debugging)."
         ;; TODO: get rid of widths calculation in parsing stage
         ;; TODO: actually maybe set widths explicitly to avoid reading every single column again?
         (let ((merged-items (apply #'ht-merge items-calls)))
-          (mapc
-           (lambda (k)
-             (funcall post-process-fn (ht-get merged-items k)))
-           (ht-keys merged-items))
+          (when post-process-fn
+            (mapc
+             (lambda (k)
+               (funcall post-process-fn (ht-get merged-items k)))
+             (ht-keys merged-items)))
           ;; set the rendering basis datastructure
           (setq knessy--data
                 `((:headers . ((:static . ,columns)
                                (:widths . ,widths)))
                   (:items . ,merged-items))))
-        (message "Resulting knessy data: ")
-        (princ knessy--data)
+        ;; (message "Resulting knessy data: ")
+        ;; (princ knessy--data)
         ;; paint!
         (knessy--repaint display-buf)))))
 
