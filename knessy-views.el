@@ -7,7 +7,7 @@
       (+ acc converted))))
 
 (defcustom knessy-default-column-width
-  5
+  12
   "Default column width."
   :type 'integer
   :group 'knessy)
@@ -15,10 +15,14 @@
 ;; TODO: make this an alist?
 (defcustom knessy-column-widths
   (ht ("NAME" 32)
-      ("CPU(r)" 7)
-      ("MEM(r)" 7)
-      ("CPU(l)" 7)
-      ("MEM(l)" 7))
+      ("NAMESPACE" 16)
+      ("STATUS" 12)
+      ("RESTARTS" 15)
+      ("NODE" 15)
+      ("CPU(r)" 20)
+      ("MEM(r)" 20)
+      ("CPU(l)" 20)
+      ("MEM(l)" 20))
   "Column widths by column name."
   :type 'sexp
   :group 'knessy)
@@ -26,10 +30,11 @@
 ;; TODO: make all structures alists again?.. since they're faster than ht, except items collection maybe
 
 (defcustom knessy-views
-  (ht ("pods" `((:columns . ("NAME" "CPU(r)" "CPU(l)" "MEM(r)" "MEM(l)"))
-                (:column-rename . ,(ht))
+  (ht ("pods" `((:columns . ("NAME" "RDY" "STATUS" "RESTARTS" "NODE" "CPU(r)" "CPU(l)" "MEM(r)" "MEM(l)" "AGE"))
+                (:column-rename . ,(ht ("RDY" "READY")))
                 (:widths . ,(ht ("NAME" 32)))
-                (:calls . (((:type . :jsonpath)
+                (:calls . (((:type . :get-wide))
+                           ((:type . :jsonpath)
                             (:spec . "'{range .items[*]}{.metadata.namespace}|{.metadata.name}{range .spec.containers[*]}|{.resources.requests.cpu}|{.resources.requests.memory}|{.resources.limits.cpu}|{.resources.limits.memory}{end}{\"\\n\"}{end}'")
                             (:headers . ((:static . ("NAMESPACE" "NAME"))
                                          (:repeated . ("CPUREQ" "MEMREQ" "CPULIM" "MEMLIM"))))
@@ -45,7 +50,7 @@
                                                   ("CPULIM" #'knessy--convert-cpu-units-str)
                                                   ("MEMREQ" #'knessy--convert-size-units-str)
                                                   ("MEMLIM" #'knessy--convert-size-units-str)))
-                            (:post-process-item . ,(lambda (item) (message "Called post-process for an item!"))))
+                            (:post-process-item . ,(lambda (item) nil)))
                            ((:type . :top)
                             (:pre-process . ,(ht ("CPU(cores)" `((:reduce-fn . ,(knessy--make-convert-and-add-reduce-fn #'knessy--convert-cpu-units-millis))))
                                                  ("MEMORY(bytes)" `((:reduce-fn . ,(knessy--make-convert-and-add-reduce-fn #'knessy--convert-size-units-bytes))))))
@@ -53,22 +58,50 @@
                                                   ("MEMORY(bytes)" #'knessy--convert-size-units-str))))))
 
                 (:post-process-item . ,(lambda (item)
-                                         (ht-set item "CPU(r)"
-                                                 (if (ht-get item "CPUREQNOTSET" nil)
-                                                     "?"
-                                                   (ht-get item "CPUREQ")))
-                                         (ht-set item "MEM(r)"
-                                                 (if (ht-get item "MEMREQNOTSET" nil)
-                                                     "?"
-                                                   (ht-get item "MEMREQ")))
-                                         (ht-set item "CPU(l)"
-                                                 (if (ht-get item "CPULIMNOTSET" nil)
-                                                     "?"
-                                                   (ht-get item "CPULIM")))
-                                         (ht-set item "MEM(l)"
-                                                 (if (ht-get item "MEMLIMNOTSET" nil)
-                                                     "?"
-                                                   (ht-get item "MEMLIM"))))))))
+                                               (let ((cpu-usage-str (ht-get item "CPU(cores)" "-"))
+                                                     (cpu-req-str (ht-get item "CPUREQ" "-")))
+                                                 (ht-set item "CPU(r)" (concat
+                                                                        (knessy--ratio
+                                                                         (knessy--convert-cpu-units-millis cpu-usage-str)
+                                                                         (knessy--convert-cpu-units-millis cpu-req-str))
+                                                                        " ("
+                                                                        cpu-usage-str
+                                                                        "/"
+                                                                        cpu-req-str
+                                                                        ")")))
+                                               (let ((mem-usage-str (ht-get item "MEMORY(bytes)" "-"))
+                                                     (mem-req-str (ht-get item "MEMREQ" "-")))
+                                                 (ht-set item "MEM(r)" (concat
+                                                                        (knessy--ratio
+                                                                         (knessy--convert-size-units-bytes mem-usage-str)
+                                                                         (knessy--convert-size-units-bytes mem-req-str))
+                                                                        " ("
+                                                                        mem-usage-str
+                                                                        "/"
+                                                                        mem-req-str
+                                                                        ")")))
+                                               (let ((cpu-usage-str (ht-get item "CPU(cores)" "-"))
+                                                     (cpu-lim-str (ht-get item "CPULIM" "-")))
+                                                 (ht-set item "CPU(l)" (concat
+                                                                        (knessy--ratio
+                                                                         (knessy--convert-cpu-units-millis cpu-usage-str)
+                                                                         (knessy--convert-cpu-units-millis cpu-lim-str))
+                                                                        " ("
+                                                                        cpu-usage-str
+                                                                        "/"
+                                                                        cpu-lim-str
+                                                                        ")")))
+                                               (let ((mem-usage-str (ht-get item "MEMORY(bytes)" "-"))
+                                                     (mem-lim-str (ht-get item "MEMLIM" "-")))
+                                                 (ht-set item "MEM(l)" (concat
+                                                                        (knessy--ratio
+                                                                         (knessy--convert-size-units-bytes mem-usage-str)
+                                                                         (knessy--convert-size-units-bytes mem-lim-str))
+                                                                        " ("
+                                                                        mem-usage-str
+                                                                        "/"
+                                                                        mem-lim-str
+                                                                        ")"))))))))
 
 
   "The variable defines different queries by resource type."

@@ -52,6 +52,7 @@
   :type 'string
   :group 'knessy)
 
+;; TODO: unused! use it!
 (defcustom knessy-restarts-sorting 'time
   "Sorting function for RESTARTS column. Can be sorted by either
 time of the last restart, or the amount of restarts."
@@ -335,9 +336,9 @@ Set SYNC to non-nil to make the call synchronous (useful for debugging)."
         ;; TODO: this loop isn't really needed is it?
         ;; setup columns
         (dolist (result results)
-          (princ "RESULT: \n")
-          (princ result)
-          (princ "\n")
+          ;; (princ "RESULT: \n")
+          ;; (princ result)
+          ;; (princ "\n")
           ;; if the view misses columns, most likely it's a default view (so display whatever we got with default call)
           (unless columns
             (setq columns (-> result (asoc-get :headers) (asoc-get :static)))))
@@ -364,8 +365,8 @@ Set SYNC to non-nil to make the call synchronous (useful for debugging)."
                                (:widths . ,widths)
                                (:rename . ,column-rename)))
                   (:items . ,merged-items))))
-        (message "Resulting knessy data: ")
-        (princ knessy--data)
+        ;; (message "Resulting knessy data: ")
+        ;; (princ knessy--data)
         ;; paint!
         (knessy--repaint display-buf)))))
 

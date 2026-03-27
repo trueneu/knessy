@@ -88,7 +88,7 @@ MILLIS is the amount of millicores."
 
 If either is null, or y == 0, return \"N/A\""
   (if (or (null y) (zerop y) (null x))
-      "N/A"
+      "?"
     (substring-no-properties (format "%.0f%%" (/ x y 0.01)))))
 
 (defun knessy--convert-time-units-seconds (s)
@@ -124,7 +124,38 @@ S is the string."
                                  (*
                                   (asoc-get knessy--time-unit-multipliers-alist unit-match)
                                   (string-to-number digit-match))))))))
-      -1)))
+      (* 3600 24 7 365 10))))
+
+(defun knessy--extract-x-slash-y (s)
+  (if (string-match (rx (group (one-or-more (not (any "()"))))
+                        "/"
+                        (group (one-or-more (not (any "()")))))
+                    s)
+      (cons (match-string 1 s) (match-string 2 s))
+    (cons "0" "0")))
+
+(defun knessy--extract-percentage (s)
+  (if (string-match (rx (group (one-or-more digit))
+                        "%")
+
+                    s)
+      (match-string 1 s)
+    "0"))
+
+(defun knessy--extract-digits-before-paren (s)
+  (if (string-match (rx (group (one-or-more digit))
+                        (one-or-more blank) "(")
+
+                    s)
+      (match-string 1 s)
+    "0"))
+
+(comment
+ (knessy--extract-percentage "toheunoenuth"))
+
+
+(comment
+ (knessy--parse-x-slash-y "2% (10m/100m)"))
 
 (comment
  (knessy--convert-time-units-seconds "10d"))
