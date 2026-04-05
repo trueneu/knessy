@@ -260,14 +260,14 @@ in Knessy mode, else lists all existing buffers."
              "Select label: "
              (cons knessy-label-selector-finish-choice
                    (ht-keys
-                    (knessy--cache-get knessy--cache (list :labels knessy--context knessy--namespace knessy--kind) #'knessy--query-labels-sync)))))
+                    (knessy--cache-get knessy--cache (list :labels knessy--context knessy--namespace knessy--kind) #'knessy--kubectl-labels-ht)))))
       (unless (s-equals? current-label knessy-label-selector-finish-choice)
         (setq current-value
               (completing-read
                "Select value: "
                (ht-keys
                 (ht-get
-                 (knessy--cache-get knessy--cache (list :labels knessy--context knessy--namespace knessy--kind) #'knessy--query-labels-sync)
+                 (knessy--cache-get knessy--cache (list :labels knessy--context knessy--namespace knessy--kind) #'knessy--kubectl-labels-ht)
                  current-label))))
         (push (cons current-label current-value) new-selectors)))
 

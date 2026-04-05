@@ -48,7 +48,7 @@
         (kill-buffer)))
     new-cache))
 
-(defun knessy--query-contexts-sync ()
+(defun knessy--kubectl-contexts-list ()
   (let ((buf (knessy--utils-make-buffer (generate-new-buffer-name "*knessy-contexts*"))))
     (knessy--shell-exec
      "kubectl config get-contexts --output name"
@@ -60,16 +60,16 @@
    knessy--cache
    '(:ctx)
    (lambda ()
-     (knessy--query-contexts-sync))))
+     (knessy--kubectl-contexts-list))))
 
-(defun knessy--query-namespaces-sync ()
+(defun knessy--kubectl-namespaces-list ()
   (let ((buf (knessy--utils-make-buffer (generate-new-buffer-name (s-concat "*knessy-" knessy--context "-namespaces*")))))
     (knessy--shell-exec
      "kubectl get namespaces --output custom-columns='NAME:.metadata.name' --no-headers"
      buf)
     (knessy--read-buffer buf)))
 
-(defun knessy--query-labels-sync ()
+(defun knessy--kubectl-labels-ht ()
   (let ((buf (knessy--utils-make-buffer (generate-new-buffer-name)
                                         (s-concat "*knessy-" knessy--context "-" knessy--namespace "-" knessy--kind "-labels*"))))
     ;; TODO: the command should be generated in a dedicated place instead concat here
@@ -84,7 +84,6 @@
                 (if (knessy--namespace-all? knessy--namespace)
                     " -A"
                   ""))))
-      (princ cmd)
       (knessy--shell-exec cmd buf)
       (apply
        #'knessy--utils-ht-merge-duplicates-to-sets
@@ -92,16 +91,12 @@
         (lambda (s) (json-parse-string s))
         (knessy--read-buffer buf t))))))
 
-
-(comment
- (apply #'princ '(1 2 3)))
-
 (comment
  (let ((knessy--context "minikube")
        (knessy--namespace "kube-system")
        (knessy--kind "pods"))
-   (knessy--query-labels-sync)
-   (knessy--cache-get knessy--cache (list :labels knessy--context knessy--namespace knessy--kind) #'knessy--query-labels-sync
+   (knessy--kubectl-labels-ht)
+   (knessy--cache-get knessy--cache (list :labels knessy--context knessy--namespace knessy--kind) #'knessy--kubectl-labels-ht
                       knessy-label-cache-ttl t))
  (-> knessy--cache
      (ht-get :labels)
@@ -109,23 +104,22 @@
      (ht-get "kube-system")
      (ht-get "pods")))
 
-
 (defun knessy--namespaces ()
   (knessy--cache-get
    knessy--cache
    (list :namespaces knessy--context)
    (lambda ()
      (cons knessy-all-namespaces-string
-       (knessy--query-namespaces-sync)))))
+       (knessy--kubectl-namespaces-list)))))
 
-(defun knessy--query-kinds-sync ()
+(defun knessy--kubectl-kinds-list ()
   (let ((buf (knessy--utils-make-buffer (generate-new-buffer-name (s-concat "*knessy-" knessy--context "-kinds*")))))
     (knessy--shell-exec
      "kubectl api-resources --output name"
      buf)
     (knessy--read-buffer buf)))
 
-(defun knessy--query-kinds-namespaced-sync ()
+(defun knessy--kubectl-kinds-namespaced-set ()
   (let ((buf (knessy--utils-make-buffer (generate-new-buffer-name (s-concat "*knessy-" knessy--context "-kinds-namespaced*")))))
     (knessy--shell-exec
      "kubectl api-resources --output name --namespaced=true"
@@ -133,7 +127,7 @@
     (knessy--utils-set
      (knessy--read-buffer buf))))
 
-(defun knessy--query-kinds-global-sync ()
+(defun knessy--kubectl-kinds-global-set ()
   (let ((buf (knessy--utils-make-buffer (generate-new-buffer-name (s-concat "*knessy-" knessy--context "-kinds-global*")))))
     (knessy--shell-exec
      "kubectl api-resources --output name --namespaced=false"
@@ -141,26 +135,31 @@
     (knessy--utils-set
      (knessy--read-buffer buf))))
 
+;; TODO: differences between all the kubectl- commands are:
+;;   - buffer names
+;;   - actual command
+;;   - parsing (either straight to list, or hashset, or something)
+
 (defun knessy--kinds ()
   (knessy--cache-get
    knessy--cache
    (list :kinds knessy--context)
    (lambda ()
-     (knessy--query-kinds-sync))))
+     (knessy--kubectl-kinds-list))))
 
 (defun knessy--kinds-namespaced ()
   (knessy--cache-get
    knessy--cache
    (list :kinds-namespaced knessy--context)
    (lambda ()
-     (knessy--query-kinds-namespaced-sync))))
+     (knessy--kubectl-kinds-namespaced-set))))
 
 (defun knessy--kinds-global ()
   (knessy--cache-get
    knessy--cache
    (list :kinds-global knessy--context)
    (lambda ()
-     (knessy--query-kinds-global-sync))))
+     (knessy--kubectl-kinds-global-set))))
 
 (defun knessy-cache-clear ()
   "Resets all the Knessy caches."
