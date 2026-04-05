@@ -1,5 +1,7 @@
 ;;; TODO - write a proper emacs package header  -*- lexical-binding: t; -*-
 
+;; TODO: reorganize all the code and fix the names this is unbearable, come up with a sane naming scheme
+
 ;; dependencies: emacs 28.1, s.el, transient, dash, asoc, ht
 
 (require 's)
