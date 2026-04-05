@@ -4,6 +4,7 @@
   (ht)
   "Caches everything.")
 
+;; TODO: include labels as filters here?
 (defun knessy--kubectl-cmd-verb-kind (ctx namespace verb kind &optional fmt)
   (let ((cmd (s-concat
               knessy-kubectl
@@ -39,7 +40,7 @@
 
 
 ;; TODO: can generalize this to readlines and save to a list
-(defun knessy--read-buffer-kill (buf &optional no-kill)
+(defun knessy--read-buffer (buf &optional no-kill)
   (let (new-cache)
     (with-current-buffer buf
       (goto-char (point-min))
@@ -56,7 +57,7 @@
     (knessy--shell-exec
      "kubectl config get-contexts --output name"
      buf)
-    (knessy--read-buffer-kill buf)))
+    (knessy--read-buffer buf)))
 
 (defun knessy--contexts ()
   (knessy--cache-get
@@ -70,10 +71,12 @@
     (knessy--shell-exec
      "kubectl get namespaces --output custom-columns='NAME:.metadata.name' --no-headers"
      buf)
-    (knessy--read-buffer-kill buf)))
+    (knessy--read-buffer buf)))
 
 (defun knessy--query-labels-sync ()
-  (let ((buf (knessy--get-empty-buffer (generate-new-buffer-name (s-concat "*knessy-" knessy--context "-" knessy--kind "-labels*")))))
+  (let ((buf (knessy--get-empty-buffer (generate-new-buffer-name
+                                        (s-concat "*knessy-" knessy--context "-" knessy--namespace "-" knessy--kind "-labels*")))))
+    ;; TODO: the command should be generated in a dedicated place instead concat here
     (let ((cmd (s-concat
                 "kubectl get "
                 knessy--kind
@@ -88,10 +91,11 @@
       (princ cmd)
       (knessy--shell-exec cmd buf)
       (apply
-       #'ht-merge
+       #'knessy--ht-merge-set
        (mapcar
         (lambda (s) (json-parse-string s))
-        (knessy--read-buffer-kill buf t))))))
+        (knessy--read-buffer buf t))))))
+
 
 (comment
  (apply #'princ '(1 2 3)))
@@ -101,7 +105,8 @@
        (knessy--namespace "kube-system")
        (knessy--kind "pods"))
    (knessy--query-labels-sync)
-   (knessy--cache-get knessy--cache (list :labels knessy--context knessy--namespace knessy--kind) #'knessy--query-labels-sync))
+   (knessy--cache-get knessy--cache (list :labels knessy--context knessy--namespace knessy--kind) #'knessy--query-labels-sync
+                      knessy-label-cache-ttl t))
  (-> knessy--cache
      (ht-get :labels)
      (ht-get "minikube")
@@ -122,7 +127,7 @@
     (knessy--shell-exec
      "kubectl api-resources --output name"
      buf)
-    (knessy--read-buffer-kill buf)))
+    (knessy--read-buffer buf)))
 
 (defun knessy--query-kinds-namespaced-sync ()
   (let ((buf (knessy--get-empty-buffer (generate-new-buffer-name (s-concat "*knessy-" knessy--context "-kinds-namespaced*")))))
@@ -130,7 +135,7 @@
      "kubectl api-resources --output name --namespaced=true"
      buf)
     (knessy--make-set
-     (knessy--read-buffer-kill buf))))
+     (knessy--read-buffer buf))))
 
 (defun knessy--query-kinds-global-sync ()
   (let ((buf (knessy--get-empty-buffer (generate-new-buffer-name (s-concat "*knessy-" knessy--context "-kinds-global*")))))
@@ -138,7 +143,7 @@
      "kubectl api-resources --output name --namespaced=false"
      buf)
     (knessy--make-set
-     (knessy--read-buffer-kill buf))))
+     (knessy--read-buffer buf))))
 
 (defun knessy--kinds ()
   (knessy--cache-get
@@ -190,7 +195,7 @@
          (knessy--cache-set
           knessy--cache
           (list :namespaces ctx)
-          (cons knessy-all-namespaces-string (knessy--read-buffer-kill buf))))))))
+          (cons knessy-all-namespaces-string (knessy--read-buffer buf))))))))
 
 (defun knessy--cache-kinds-populate-async ()
   (dolist (ctx (knessy--contexts))
@@ -223,7 +228,7 @@
          (knessy--cache-set
           knessy--cache
           (list :kinds ctx)
-          (knessy--read-buffer-kill buf))))
+          (knessy--read-buffer buf))))
 
       (knessy--shell-exec-async2
        (concat
@@ -237,7 +242,7 @@
           knessy--cache
           (list :kinds-namespaced ctx)
           (knessy--make-set
-           (knessy--read-buffer-kill buf-namespaced)))))
+           (knessy--read-buffer buf-namespaced)))))
 
       (knessy--shell-exec-async2
        (concat
@@ -251,7 +256,7 @@
           knessy--cache
           (list :kinds-global ctx)
           (knessy--make-set
-           (knessy--read-buffer-kill buf-global))))))))
+           (knessy--read-buffer buf-global))))))))
 
 (defun knessy--caches-populate-async ()
   (let ((buf (knessy--get-empty-buffer (generate-new-buffer-name "*knessy-cache-contexts*")))
@@ -264,7 +269,7 @@
        (knessy--cache-set
         knessy--cache
         '(:ctx)
-        (knessy--read-buffer-kill buf))
+        (knessy--read-buffer buf))
        (knessy--cache-namespaces-populate-async)
        (knessy--cache-kinds-populate-async)))))
 
@@ -273,10 +278,10 @@
     ;; TODO: the buffer name should also have namespace?..
     (let ((buf (knessy--get-empty-buffer
                 (generate-new-buffer-name
-                 (concat "*knessy-cache-labels-" ctx "-" knessy--kind "*"))))
+                 (concat "*knessy-cache-labels-" ctx "-" knessy--namespace "-" knessy--kind "*"))))
           (buferr (knessy--get-empty-buffer
                    (generate-new-buffer-name
-                    (concat "*knessy-cache-labels-" ctx "-" knessy--kind "-stderr*")))))
+                    (concat "*knessy-cache-labels-" ctx "-" knessy--namespace "-" knessy--kind "-stderr*")))))
 
       (knessy--shell-exec-async2
        (s-concat
@@ -299,10 +304,11 @@
               (list :labels ctx knessy--kind)
             (list :labels ctx knessy--namespace knessy--kind))
           (apply
-           #'ht-merge
+           #'knessy--ht-merge-set
            (mapcar
             (lambda (s) (json-parse-string s))
-            (knessy--read-buffer-kill buf t)))))))))
+            (knessy--read-buffer buf t)))
+          knessy-label-cache-ttl))))))
 
 (comment
  (let ((knessy--context "minikube")

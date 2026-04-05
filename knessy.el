@@ -244,12 +244,38 @@ in Knessy mode, else lists all existing buffers."
 (defvar knessy-label-cache-ttl 120
   "TTL for labels to live")
 
-
 (defvar-local knessy--label-selectors '())
 
 ;; TODO: write this
 (defun knessy--filter-label ()
-  (interactive))
+  (interactive)
+  (let ((current-label nil)
+        (current-value nil)
+        (new-selectors '()))
+    (while (not (s-equals? current-label knessy-label-selector-finish-choice))
+      (setq current-label
+            (completing-read
+             "Select label: "
+             (cons knessy-label-selector-finish-choice
+                   (ht-keys
+                    (knessy--cache-get knessy--cache (list :labels knessy--context knessy--namespace knessy--kind) #'knessy--query-labels-sync)))))
+      (unless (s-equals? current-label knessy-label-selector-finish-choice)
+        (setq current-value
+              (completing-read
+               "Select value: "
+               (ht-keys
+                (ht-get
+                 (knessy--cache-get knessy--cache (list :labels knessy--context knessy--namespace knessy--kind) #'knessy--query-labels-sync)
+                 current-label))))
+        (push (cons current-label current-value) new-selectors)))
+
+    (setq knessy--label-selectors new-selectors)))
+
+(comment
+ (let ((knessy--context "minikube")
+       (knessy--namespace "kube-system")
+       (knessy--kind "pods"))
+   (knessy--filter-label)))
 
 (transient-define-prefix
   knessy-filter () "Filter"
@@ -345,7 +371,9 @@ If omitted, use the current one (for synchronous calls)."
         (push (knessy--parse-table-kubectl-output buf headers pre-process-ht post-process-ht post-process-item) results)))
     results))
 
-(defvar-local knessy--refresh-in-progress nil)
+(defvar-local knessy--refresh-in-progress nil
+  "If T, the buffer refresh is already in progress.
+Made so spamming refreshes doesn't result in 100 of kubectl calls.")
 
 ;; TODO: finish this!
 ;; TODO: add appending NAMESPACE column before NAME if it's missing + not all-namespaces
@@ -358,6 +386,7 @@ Set SYNC to non-nil to make the call synchronous (useful for debugging)."
     (setq knessy--refresh-in-progress t)
     (message "Refreshing...")
     (let* ((display-buf (current-buffer)))
+      (knessy--cache-labels-populate-async)
       (let* ((view (ht-get knessy-views knessy--kind
                            `((:calls . (((:type . ,knessy-call-default-type)))))))
              (calls (asoc-get view :calls))

@@ -2,6 +2,8 @@
 
 (require 'ht)
 
+;; TODO: add an auto-refresh expired caches by timer capabilities
+
 (defcustom knessy-cache-ttl-default (* 3600 24)
   "Default cache time-to-live."
   :type 'integer

@@ -29,8 +29,10 @@
 
 ;; TODO: make all structures alists again?.. since they're faster than ht, except items collection maybe
 
+;; TODO: make a kind -> view table, allow multiple views per kind
+
 (defcustom knessy-views
-  (ht ("pods" `((:columns . ("NAME" "RDY" "STATUS" "RESTARTS" "NODE" "CPU(r)" "CPU(l)" "MEM(r)" "MEM(l)" "AGE"))
+  (ht ("pods" `((:columns . ("NAME" "RDY" "STATUS" "RESTARTS" "CPU(r)" "CPU(l)" "MEM(r)" "MEM(l)" "NODE" "AGE"))
                 (:column-rename . ,(ht ("RDY" "READY")))
                 (:widths . ,(ht ("NAME" 32)))
                 (:calls . (((:type . :get-wide))

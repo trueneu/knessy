@@ -37,5 +37,20 @@ in-place, the old list reference does not remain valid."
     (dolist (entry l res)
       (ht-set res entry t))))
 
+(defun knessy--ht-merge-set (&rest tables)
+  (let ((res-table (ht)))
+    (dolist (table tables res-table)
+      (dolist (item (ht-items table))
+        (let ((key (car item))
+              (value (cadr item)))
+          (if (not (ht-contains? res-table key))
+              (ht-set res-table key (ht (value t)))
+            (ht-set (ht-get res-table key) value t)))))))
+
+
+(comment
+ (let ((ht1 (ht (:a :b) (:c :d)))
+       (ht2 (ht (:a :e))))
+   (knessy--ht-merge-v-list ht1 ht2)))
 
 (provide 'knessy-utils)
