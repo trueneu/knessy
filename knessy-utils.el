@@ -3,7 +3,7 @@
 ; Source - https://stackoverflow.com/a/65697090
 ; Posted by Vladimir Panteleev
 ; Retrieved 2026-03-23, License - CC BY-SA 4.0
-(defun knessy--insert-into-list (list el n)
+(defun knessy--utils-insert-into-list (list el n)
   "Insert into list LIST an element EL at index N.
 
 If N is 0, EL is inserted before the first element.
@@ -15,29 +15,27 @@ in-place, the old list reference does not remain valid."
     (setcdr c (cons el (cdr c)))
     (cdr padded-list)))
 
-(comment
- (let ((l '(1 2 3)))
-   (knessy--insert-into-list l 99 (-elem-index 1 l))))
-
 ;; TODO: maybe this helper is not needed with generate-new-buffer-name
-(defun knessy--get-empty-buffer (buffer-name)
+(defun knessy--utils-make-buffer (buffer-name)
   "Either kill an existing buffer with the name and create a new one, or just create it."
   (let ((buf (get-buffer buffer-name)))
     (when buf
       (kill-buffer buf))
     (get-buffer-create buffer-name t)))
 
-(defun knessy--expand-colons (s)
+(defun knessy--utils-filename-expand-colons (s)
+  "Expands file name for multiple files divided by colons."
   (s-join ":"
     (let ((paths (s-split ":" s)))
       (mapcar #'expand-file-name paths))))
 
-(defun knessy--make-set (l)
+(defun knessy--utils-set (l)
+  "Makes a hashset from the list L"
   (let ((res (ht)))
     (dolist (entry l res)
       (ht-set res entry t))))
 
-(defun knessy--ht-merge-set (&rest tables)
+(defun knessy--utils-ht-merge-duplicates-to-sets (&rest tables)
   (let ((res-table (ht)))
     (dolist (table tables res-table)
       (dolist (item (ht-items table))
@@ -47,10 +45,22 @@ in-place, the old list reference does not remain valid."
               (ht-set res-table key (ht (value t)))
             (ht-set (ht-get res-table key) value t)))))))
 
+(defun knessy--utils-ht-init (table keys)
+  "Initializes hashtables all the way down if needed. Returns the last (leaf) hashtable."
+  (let ((current-table table))
+    (dolist (key keys)
+      (unless (ht-get current-table key)
+        (ht-set current-table key (ht)))
+      ;; descend into madness
+      (setq current-table (ht-get current-table key)))
+    current-table))
 
-(comment
- (let ((ht1 (ht (:a :b) (:c :d)))
-       (ht2 (ht (:a :e))))
-   (knessy--ht-merge-v-list ht1 ht2)))
+(defun knessy--utils-ht-set* (table keys value)
+  "Sets an aribitrarily nested key to value, creating hashtables along the way if don't exist."
+  (let* ((last-key (car (last keys)))
+         (butlast-keys (butlast keys))
+         (current-table (knessy--utils-ht-init table butlast-keys)))
+    (ht-set current-table last-key value)
+    value))
 
 (provide 'knessy-utils)

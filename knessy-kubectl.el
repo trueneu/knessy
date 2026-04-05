@@ -1,9 +1,5 @@
 ;; -*- lexical-binding: t; -*-
 
-(defvar knessy--cache
-  (ht)
-  "Caches everything.")
-
 ;; TODO: include labels as filters here?
 (defun knessy--kubectl-cmd-verb-kind (ctx namespace verb kind &optional fmt)
   (let ((cmd (s-concat
@@ -53,7 +49,7 @@
     new-cache))
 
 (defun knessy--query-contexts-sync ()
-  (let ((buf (knessy--get-empty-buffer (generate-new-buffer-name "*knessy-contexts*"))))
+  (let ((buf (knessy--utils-make-buffer (generate-new-buffer-name "*knessy-contexts*"))))
     (knessy--shell-exec
      "kubectl config get-contexts --output name"
      buf)
@@ -67,15 +63,15 @@
      (knessy--query-contexts-sync))))
 
 (defun knessy--query-namespaces-sync ()
-  (let ((buf (knessy--get-empty-buffer (generate-new-buffer-name (s-concat "*knessy-" knessy--context "-namespaces*")))))
+  (let ((buf (knessy--utils-make-buffer (generate-new-buffer-name (s-concat "*knessy-" knessy--context "-namespaces*")))))
     (knessy--shell-exec
      "kubectl get namespaces --output custom-columns='NAME:.metadata.name' --no-headers"
      buf)
     (knessy--read-buffer buf)))
 
 (defun knessy--query-labels-sync ()
-  (let ((buf (knessy--get-empty-buffer (generate-new-buffer-name
-                                        (s-concat "*knessy-" knessy--context "-" knessy--namespace "-" knessy--kind "-labels*")))))
+  (let ((buf (knessy--utils-make-buffer (generate-new-buffer-name)
+                                        (s-concat "*knessy-" knessy--context "-" knessy--namespace "-" knessy--kind "-labels*"))))
     ;; TODO: the command should be generated in a dedicated place instead concat here
     (let ((cmd (s-concat
                 "kubectl get "
@@ -91,7 +87,7 @@
       (princ cmd)
       (knessy--shell-exec cmd buf)
       (apply
-       #'knessy--ht-merge-set
+       #'knessy--utils-ht-merge-duplicates-to-sets
        (mapcar
         (lambda (s) (json-parse-string s))
         (knessy--read-buffer buf t))))))
@@ -123,26 +119,26 @@
        (knessy--query-namespaces-sync)))))
 
 (defun knessy--query-kinds-sync ()
-  (let ((buf (knessy--get-empty-buffer (generate-new-buffer-name (s-concat "*knessy-" knessy--context "-kinds*")))))
+  (let ((buf (knessy--utils-make-buffer (generate-new-buffer-name (s-concat "*knessy-" knessy--context "-kinds*")))))
     (knessy--shell-exec
      "kubectl api-resources --output name"
      buf)
     (knessy--read-buffer buf)))
 
 (defun knessy--query-kinds-namespaced-sync ()
-  (let ((buf (knessy--get-empty-buffer (generate-new-buffer-name (s-concat "*knessy-" knessy--context "-kinds-namespaced*")))))
+  (let ((buf (knessy--utils-make-buffer (generate-new-buffer-name (s-concat "*knessy-" knessy--context "-kinds-namespaced*")))))
     (knessy--shell-exec
      "kubectl api-resources --output name --namespaced=true"
      buf)
-    (knessy--make-set
+    (knessy--utils-set
      (knessy--read-buffer buf))))
 
 (defun knessy--query-kinds-global-sync ()
-  (let ((buf (knessy--get-empty-buffer (generate-new-buffer-name (s-concat "*knessy-" knessy--context "-kinds-global*")))))
+  (let ((buf (knessy--utils-make-buffer (generate-new-buffer-name (s-concat "*knessy-" knessy--context "-kinds-global*")))))
     (knessy--shell-exec
      "kubectl api-resources --output name --namespaced=false"
      buf)
-    (knessy--make-set
+    (knessy--utils-set
      (knessy--read-buffer buf))))
 
 (defun knessy--kinds ()
@@ -177,10 +173,10 @@
 ;; destinations
 (defun knessy--cache-namespaces-populate-async ()
   (dolist (ctx (knessy--contexts))
-    (let ((buf (knessy--get-empty-buffer
+    (let ((buf (knessy--utils-make-buffer
                 (generate-new-buffer-name
                  (concat "*knessy-cache-namespaces-" ctx "*"))))
-          (buferr (knessy--get-empty-buffer
+          (buferr (knessy--utils-make-buffer
                    (generate-new-buffer-name
                     (concat "*knessy-cache-namespaces-" ctx "-stderr*")))))
 
@@ -199,22 +195,22 @@
 
 (defun knessy--cache-kinds-populate-async ()
   (dolist (ctx (knessy--contexts))
-    (let ((buf (knessy--get-empty-buffer
+    (let ((buf (knessy--utils-make-buffer
                 (generate-new-buffer-name
                  (concat "*knessy-cache-resources-" ctx "*"))))
-          (buferr (knessy--get-empty-buffer
+          (buferr (knessy--utils-make-buffer
                    (generate-new-buffer-name
                     (concat "*knessy-cache-resources-" ctx "-stderr*"))))
-          (buf-namespaced (knessy--get-empty-buffer
+          (buf-namespaced (knessy--utils-make-buffer
                            (generate-new-buffer-name
                             (concat "*knessy-cache-resources-namespaced-" ctx "*"))))
-          (buferr-namespaced (knessy--get-empty-buffer
+          (buferr-namespaced (knessy--utils-make-buffer
                               (generate-new-buffer-name
                                (concat "*knessy-cache-resources-namespaced-" ctx "-stderr*"))))
-          (buf-global (knessy--get-empty-buffer
+          (buf-global (knessy--utils-make-buffer
                        (generate-new-buffer-name
                         (concat "*knessy-cache-resources-global-" ctx "*"))))
-          (buferr-global (knessy--get-empty-buffer
+          (buferr-global (knessy--utils-make-buffer
                           (generate-new-buffer-name
                            (concat "*knessy-cache-resources-global-" ctx "-stderr*")))))
       (knessy--shell-exec-async2
@@ -241,7 +237,7 @@
          (knessy--cache-set
           knessy--cache
           (list :kinds-namespaced ctx)
-          (knessy--make-set
+          (knessy--utils-set
            (knessy--read-buffer buf-namespaced)))))
 
       (knessy--shell-exec-async2
@@ -255,12 +251,12 @@
          (knessy--cache-set
           knessy--cache
           (list :kinds-global ctx)
-          (knessy--make-set
+          (knessy--utils-set
            (knessy--read-buffer buf-global))))))))
 
 (defun knessy--caches-populate-async ()
-  (let ((buf (knessy--get-empty-buffer (generate-new-buffer-name "*knessy-cache-contexts*")))
-        (buferr (knessy--get-empty-buffer (generate-new-buffer-name "*knessy-cache-contexts-stderr*"))))
+  (let ((buf (knessy--utils-make-buffer (generate-new-buffer-name "*knessy-cache-contexts*")))
+        (buferr (knessy--utils-make-buffer (generate-new-buffer-name "*knessy-cache-contexts-stderr*"))))
     (knessy--shell-exec-async2
      "kubectl config get-contexts --output name"
      buf
@@ -276,10 +272,10 @@
 (defun knessy--cache-labels-populate-async ()
   (dolist (ctx (knessy--contexts))
     ;; TODO: the buffer name should also have namespace?..
-    (let ((buf (knessy--get-empty-buffer
+    (let ((buf (knessy--utils-make-buffer
                 (generate-new-buffer-name
                  (concat "*knessy-cache-labels-" ctx "-" knessy--namespace "-" knessy--kind "*"))))
-          (buferr (knessy--get-empty-buffer
+          (buferr (knessy--utils-make-buffer
                    (generate-new-buffer-name
                     (concat "*knessy-cache-labels-" ctx "-" knessy--namespace "-" knessy--kind "-stderr*")))))
 
@@ -304,7 +300,7 @@
               (list :labels ctx knessy--kind)
             (list :labels ctx knessy--namespace knessy--kind))
           (apply
-           #'knessy--ht-merge-set
+           #'knessy--utils-ht-merge-duplicates-to-sets
            (mapcar
             (lambda (s) (json-parse-string s))
             (knessy--read-buffer buf t)))

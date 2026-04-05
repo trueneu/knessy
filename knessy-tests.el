@@ -1,6 +1,6 @@
 ;; this should be rewritten properly  -*- lexical-binding: t; -*-
 
-(knessy--expand-colons "~/first:~/second:~/third")
+(knessy--utils-filename-expand-colons "~/first:~/second:~/third")
 
 (comment
  (let ((buf (find-file-noselect "test-parse-repeated-columns")))

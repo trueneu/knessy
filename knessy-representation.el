@@ -80,7 +80,7 @@ Specify empty hashtable if no post-processing is desired.
                (kind knessy--kind)
                (namespace (if (ht-get (knessy--cache-get knessy--cache (list :kinds-namespaced knessy--context)
                                                          (lambda ()
-                                                           (knessy--make-set
+                                                           (knessy--utils-set
                                                             (knessy--read-buffer buf-global))))
                                       kind
                                       nil)

@@ -315,8 +315,8 @@ If omitted, use the current one (for synchronous calls)."
   "Make kubectl calls and display the result."
   (interactive)
   (let* ((display-buf (current-buffer))
-         (buf (knessy--get-empty-buffer (generate-new-buffer-name "*knessy-display*")))
-         (buferr (knessy--get-empty-buffer (generate-new-buffer-name "*knessy-display-stderr*"))))
+         (buf (knessy--utils-make-buffer (generate-new-buffer-name "*knessy-display*")))
+         (buferr (knessy--utils-make-buffer (generate-new-buffer-name "*knessy-display-stderr*"))))
     (knessy--shell-exec-async2
      "kubectl --context minikube -n kube-system get deployments"
      buf
@@ -340,8 +340,8 @@ If omitted, use the current one (for synchronous calls)."
   (let ((promises '())
         (resolved '()))
     (dolist (call calls)
-      (let ((buf (knessy--get-empty-buffer (generate-new-buffer-name "*knessy-aio-display*")))
-            (buferr (knessy--get-empty-buffer (generate-new-buffer-name "*knessy-aio-display-stderr*")))
+      (let ((buf (knessy--utils-make-buffer (generate-new-buffer-name "*knessy-aio-display*")))
+            (buferr (knessy--utils-make-buffer (generate-new-buffer-name "*knessy-aio-display-stderr*")))
             (headers (asoc-get call :headers nil))
             (pre-process-ht (asoc-get call :pre-process (ht)))
             (post-process-ht (asoc-get call :post-process (ht)))
@@ -363,7 +363,7 @@ If omitted, use the current one (for synchronous calls)."
 (defun knessy--perform-calls-sync (calls)
   (let ((results '()))
     (dolist (call calls)
-      (let ((buf (knessy--get-empty-buffer (generate-new-buffer-name "*knessy-display*")))
+      (let ((buf (knessy--utils-make-buffer (generate-new-buffer-name "*knessy-display*")))
             (headers (asoc-get call :headers nil))
             (pre-process-ht (asoc-get call :pre-process (ht)))
             (post-process-ht (asoc-get call :post-process (ht)))
@@ -404,7 +404,7 @@ Set SYNC to non-nil to make the call synchronous (useful for debugging)."
                ;; mix-in NAMESPACE column in front of NAME if current namespace is *ALL*
                ;; if the columns is nil, leave it as is -- NAMESPACE should be present in the kubectl output anyways
                (columns (if (and knessy--namespace-current-all? columns)
-                            (knessy--insert-into-list
+                            (knessy--utils-insert-into-list
                              columns "NAMESPACE" (-elem-index "NAME" columns))
                           columns))
                (column-rename (asoc-get view :column-rename (ht)))
@@ -466,7 +466,7 @@ Set SYNC to non-nil to make the call synchronous (useful for debugging)."
 (defun knessy-get-new-buffer ()
   (let* ((buf-name (generate-new-buffer-name
                     (knessy--generate-buffer-name knessy-base-buffer-name nil)))
-         (buf (knessy--get-empty-buffer buf-name)))
+         (buf (knessy--utils-make-buffer buf-name)))
     (push buf-name knessy-buffer-list)
     buf))
 
