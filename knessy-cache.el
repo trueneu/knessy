@@ -1,5 +1,7 @@
 ;; -*- lexical-binding: t; -*-
 
+(require 'ht)
+
 (defcustom knessy-cache-ttl-default (* 3600 24)
   "Default cache time-to-live."
   :type 'integer

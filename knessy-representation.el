@@ -72,15 +72,23 @@ Specify empty hashtable if no post-processing is desired.
         (setq header-repeated (asoc-get headers :repeated)))
 
       (while (not (eobp))
-        (let ((values (s-split (rx (or (>= 2 whitespace) "|"))
-                               (s-trim (thing-at-point 'line t))))
-              (item (ht))
-              (name)
-              ;; TODO: here should be the check if kind is namespaced or not
-              (namespace knessy--namespace)
-              (kind knessy--kind)
-              (accumulators (ht))
-              (mixins (ht)))
+        (let* ((values (s-split (rx (or (>= 2 whitespace) "|"))
+                                (s-trim (thing-at-point 'line t))))
+               (item (ht))
+               (name)
+               ;; TODO: here should be the check if kind is namespaced or not
+               (kind knessy--kind)
+               (namespace (if (ht-get (knessy--cache-get knessy--cache (list :kinds-namespaced knessy--context)
+                                                         (lambda ()
+                                                           (knessy--make-set
+                                                            (knessy--read-buffer-kill buf-global))))
+                                      kind
+                                      nil)
+                              knessy--namespace
+                            nil))
+
+               (accumulators (ht))
+               (mixins (ht)))
           (dolist (pair (-zip-pair (-concat header-static
                                             (-cycle header-repeated))
                                    values))
@@ -223,9 +231,9 @@ Specify empty hashtable if no post-processing is desired.
   (if (ht-get knessy--marked id nil)
       ;; TODO: face should be customizable
       (progn
-        (princ "Marking: ")
-        (princ id)
-        (princ "\n")
+        ;; (princ "Marking: ")
+        ;; (princ id)
+        ;; (princ "\n")
         (propertize name 'face 'dired-marked))
     name))
 

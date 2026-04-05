@@ -32,4 +32,10 @@ in-place, the old list reference does not remain valid."
     (let ((paths (s-split ":" s)))
       (mapcar #'expand-file-name paths))))
 
+(defun knessy--make-set (l)
+  (let ((res (ht)))
+    (dolist (entry l res)
+      (ht-set res entry t))))
+
+
 (provide 'knessy-utils)
