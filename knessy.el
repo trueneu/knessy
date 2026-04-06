@@ -162,6 +162,12 @@ in Knessy mode, else lists all existing buffers."
       (ht-remove knessy--marked id)))
   (knessy--repaint))
 
+(defun knessy--contexts ()
+  (knessy--cache-get
+   knessy--cache
+   '(:ctx)
+   (lambda ()
+     (knessy--kubectl-contexts))))
 
 ;; TODO: call this when changing a namespace
 (defun knessy--namespace-current-all?-update ()
@@ -260,14 +266,14 @@ in Knessy mode, else lists all existing buffers."
              "Select label: "
              (cons knessy-label-selector-finish-choice
                    (ht-keys
-                    (knessy--cache-get knessy--cache (list :labels knessy--context knessy--namespace knessy--kind) #'knessy--kubectl-labels-ht)))))
+                    (knessy--cache-get knessy--cache (list :labels knessy--context knessy--namespace knessy--kind) #'knessy--kubectl-labels)))))
       (unless (s-equals? current-label knessy-label-selector-finish-choice)
         (setq current-value
               (completing-read
                "Select value: "
                (ht-keys
                 (ht-get
-                 (knessy--cache-get knessy--cache (list :labels knessy--context knessy--namespace knessy--kind) #'knessy--kubectl-labels-ht)
+                 (knessy--cache-get knessy--cache (list :labels knessy--context knessy--namespace knessy--kind) #'knessy--kubectl-labels)
                  current-label))))
         (push (cons current-label current-value) new-selectors)))
 
@@ -315,8 +321,8 @@ If omitted, use the current one (for synchronous calls)."
   "Make kubectl calls and display the result."
   (interactive)
   (let* ((display-buf (current-buffer))
-         (buf (knessy--utils-make-buffer (generate-new-buffer-name "*knessy-display*")))
-         (buferr (knessy--utils-make-buffer (generate-new-buffer-name "*knessy-display-stderr*"))))
+         (buf (knessy--utils-make-buffer (generate-new-buffer-name (knessy--utils-kubectl-buffer-name "display" t t t))))
+         (buferr (knessy--utils-make-buffer (generate-new-buffer-name (knessy--utils-kubectl-buffer-name "display" t t t t)))))
     (knessy--shell-exec-async2
      "kubectl --context minikube -n kube-system get deployments"
      buf
@@ -340,8 +346,8 @@ If omitted, use the current one (for synchronous calls)."
   (let ((promises '())
         (resolved '()))
     (dolist (call calls)
-      (let ((buf (knessy--utils-make-buffer (generate-new-buffer-name "*knessy-aio-display*")))
-            (buferr (knessy--utils-make-buffer (generate-new-buffer-name "*knessy-aio-display-stderr*")))
+      (let ((buf (knessy--utils-make-buffer (generate-new-buffer-name (knessy--utils-kubectl-buffer-name "aio-display" t t t))))
+            (buferr (knessy--utils-make-buffer (generate-new-buffer-name (knessy--utils-kubectl-buffer-name "aio-display" t t t t))))
             (headers (asoc-get call :headers nil))
             (pre-process-ht (asoc-get call :pre-process (ht)))
             (post-process-ht (asoc-get call :post-process (ht)))
@@ -363,7 +369,7 @@ If omitted, use the current one (for synchronous calls)."
 (defun knessy--perform-calls-sync (calls)
   (let ((results '()))
     (dolist (call calls)
-      (let ((buf (knessy--utils-make-buffer (generate-new-buffer-name "*knessy-display*")))
+      (let ((buf (knessy--utils-make-buffer (generate-new-buffer-name (knessy--utils-kubectl-buffer-name "display" t t t))))
             (headers (asoc-get call :headers nil))
             (pre-process-ht (asoc-get call :pre-process (ht)))
             (post-process-ht (asoc-get call :post-process (ht)))

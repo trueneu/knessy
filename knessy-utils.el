@@ -76,4 +76,24 @@ in-place, the old list reference does not remain valid."
         (kill-buffer)))
     new-cache))
 
+(defun knessy--utils-kubectl-buffer-name (what &optional omit-context? omit-namespace? omit-kind? stderr?)
+  (s-concat
+   "*"
+   knessy-base-buffer-name
+   (if omit-context?
+       ""
+     (s-concat "-" knessy--context))
+   (if omit-namespace?
+       ""
+     (s-concat "-" knessy--namespace))
+   (if omit-kind?
+       ""
+     (s-concat "-" knessy--kind))
+   "-"
+   what
+   (if stderr?
+       "-stderr"
+     "")
+   "*"))
+
 (provide 'knessy-utils)
