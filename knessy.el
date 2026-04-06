@@ -350,7 +350,7 @@ If omitted, use the current one (for synchronous calls)."
         ;; TODO: clean this up and teach it various call types
         ;; TODO: continue writing the function forming the cmd string probably
         ;; TODO: dispatch table shouldn't depend on the exec style (sync/async), extract it
-        (let ((promise (knessy--shell-exec-aio (knessy--call->cmd call knessy--context knessy--namespace kind)
+        (let ((promise (knessy--shell-exec-aio (knessy--kubectl-call->cmd call knessy--context knessy--namespace kind)
                                                buf buferr (lambda () (knessy--parse-table-kubectl-output
                                                                       buf
                                                                       headers
@@ -369,7 +369,7 @@ If omitted, use the current one (for synchronous calls)."
             (post-process-ht (asoc-get call :post-process (ht)))
             (post-process-item (asoc-get call :post-process-item nil))
             (kind (asoc-get call :kind knessy--kind)))
-        (knessy--shell-exec (knessy--call->cmd call knessy--context knessy--namespace kind) buf)
+        (knessy--shell-exec (knessy--kubectl-call->cmd call knessy--context knessy--namespace kind) buf)
         (push (knessy--parse-table-kubectl-output buf headers pre-process-ht post-process-ht post-process-item) results)))
     results))
 
@@ -480,6 +480,7 @@ Set SYNC to non-nil to make the call synchronous (useful for debugging)."
   "Create new knessy buffer."
   (interactive)
   (let* ((knessy-buffer (knessy-get-new-buffer)))
+    ;; FIXME: is it wrong use of nconc there?
     (setq knessy-buffer-list (nconc knessy-buffer-list (list knessy-buffer)))
     (set-buffer knessy-buffer)
     (knessy-mode)

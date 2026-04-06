@@ -1,15 +1,15 @@
 ;; -*- lexical-binding: t; -*-
 
 ;; TODO: include labels as filters here?
-(defun knessy--kubectl-cmd-verb-kind (ctx namespace verb kind &optional fmt)
+(defun knessy--kubectl-cmd-verb-kind (verb &optional fmt omit-namespace?)
   (let ((cmd (s-concat
               knessy-kubectl
-              " --context " ctx
-              (if (knessy--namespace-all? namespace)
+              " --context " knessy--context
+              (if (or omit-namespace? (knessy--namespace-all? knessy--namespace))
                   ""
-                (s-concat " -n " namespace))
-              " " verb " "  kind
-              (if (knessy--namespace-all? namespace)
+                (s-concat " -n " knessy--namespace))
+              " " verb " "  knessy--kind
+              (if (and (not omit-namespace?) (knessy--namespace-all? knessy--namespace))
                   " -A"
                 "")
               (if fmt
@@ -18,22 +18,18 @@
     (message cmd)
     cmd))
 
-(defun knessy--call->cmd (call ctx namespace kind)
+(defun knessy--kubectl-call->cmd (call)
   (let ((type (asoc-get call :type)))
     (cond ((eq :get-wide type)
-           (knessy--kubectl-cmd-verb-kind ctx namespace "get" kind "wide"))
+           (knessy--kubectl-cmd-verb-kind "get" "wide"))
           ((eq :get type)
-           (knessy--kubectl-cmd-verb-kind ctx namespace "get" kind))
+           (knessy--kubectl-cmd-verb-kind "get"))
           ((eq :custom-columns type)
-           (knessy--kubectl-cmd-verb-kind ctx namespace "get" kind (s-concat "custom-columns=" (asoc-get call :spec))))
+           (knessy--kubectl-cmd-verb-kind "get" (s-concat "custom-columns=" (asoc-get call :spec))))
           ((eq :jsonpath type)
-           (knessy--kubectl-cmd-verb-kind ctx namespace "get" kind (s-concat "jsonpath=" (asoc-get call :spec))))
+           (knessy--kubectl-cmd-verb-kind "get" (s-concat "jsonpath=" (asoc-get call :spec))))
           ((eq :top type)
-           (knessy--kubectl-cmd-verb-kind ctx namespace "top" kind)))))
-
-(comment
- (knessy--kubectl-cmd-verb-kind "pods" "*ALL*" "json"))
-
+           (knessy--kubectl-cmd-verb-kind "top")))))
 
 ;; TODO: can generalize this to readlines and save to a list
 (defun knessy--read-buffer (buf &optional no-kill)
@@ -193,6 +189,8 @@
           (cons knessy-all-namespaces-string (knessy--read-buffer buf))))))))
 
 (defun knessy--cache-kinds-populate-async ()
+  ;; TODO: this is a nightmare
+
   (dolist (ctx (knessy--contexts))
     (let ((buf (knessy--utils-make-buffer
                 (generate-new-buffer-name
@@ -212,6 +210,7 @@
           (buferr-global (knessy--utils-make-buffer
                           (generate-new-buffer-name
                            (concat "*knessy-cache-resources-global-" ctx "-stderr*")))))
+      ;; TODO: the actual command should not live here
       (knessy--shell-exec-async2
        (concat
         "kubectl --context "
@@ -225,6 +224,7 @@
           (list :kinds ctx)
           (knessy--read-buffer buf))))
 
+      ;; TODO: the actual command should not live here
       (knessy--shell-exec-async2
        (concat
         "kubectl --context "
@@ -238,6 +238,7 @@
           (list :kinds-namespaced ctx)
           (knessy--utils-set
            (knessy--read-buffer buf-namespaced)))))
+      ;; TODO: the actual command should not live here
 
       (knessy--shell-exec-async2
        (concat
@@ -256,6 +257,7 @@
 (defun knessy--caches-populate-async ()
   (let ((buf (knessy--utils-make-buffer (generate-new-buffer-name "*knessy-cache-contexts*")))
         (buferr (knessy--utils-make-buffer (generate-new-buffer-name "*knessy-cache-contexts-stderr*"))))
+    ;; TODO: the actual command should not live here
     (knessy--shell-exec-async2
      "kubectl config get-contexts --output name"
      buf
@@ -270,7 +272,6 @@
 
 (defun knessy--cache-labels-populate-async ()
   (dolist (ctx (knessy--contexts))
-    ;; TODO: the buffer name should also have namespace?..
     (let ((buf (knessy--utils-make-buffer
                 (generate-new-buffer-name
                  (concat "*knessy-cache-labels-" ctx "-" knessy--namespace "-" knessy--kind "*"))))
@@ -278,6 +279,7 @@
                    (generate-new-buffer-name
                     (concat "*knessy-cache-labels-" ctx "-" knessy--namespace "-" knessy--kind "-stderr*")))))
 
+      ;; TODO: the actual command should not live here
       (knessy--shell-exec-async2
        (s-concat
         "kubectl get "
@@ -323,31 +325,6 @@
   (interactive)
   (knessy-cache-clear)
   (knessy--caches-populate-async))
-
-(defun knessy--kubectl-type->verb (type)
-  (cond ((eq type 'top) "top")
-        (t "get")))
-
-(comment
- (knessy--kubectl-type->verb 'top))
-
-(defun knessy--kubectl-construct-display (spec)
-  (let ((type (asoc-get spec :type))
-        (verb (knessy--kubectl-type->verb type))
-        (format-type (asoc-get spec :format-type))
-        (format-spec (asoc-get spec :format-spec))
-        ;; TODO: finish these!
-        (selectors)
-        (field-selectors)))
-
-  ;; TODO: in-progress
-  (s-concat
-   knessy-kubectl
-   " --context "  knessy--context
-   " " verb
-   " " knessy--kind))
-
-
 
 (comment
  knessy--cache
