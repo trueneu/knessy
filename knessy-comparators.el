@@ -24,7 +24,7 @@
        (string-to-number (knessy--extract-digits-before-paren x-restarts))
        (string-to-number (knessy--extract-digits-before-paren y-restarts))))))
 
-(defun knessy--make-comparator-ready (column-num)
+(defun knessy--comparator-make-ready (column-num)
   (lambda (x y)
     "Returns t if x<y"
     (let ((x-ready (aref (cadr x) column-num))  ; extract the strings
@@ -34,7 +34,7 @@
        (string-to-number (car (knessy--extract-x-slash-y x-ready)))
        (string-to-number (car (knessy--extract-x-slash-y y-ready)))))))
 
-(defun knessy--make-comparator-cpu-usage (column-num)
+(defun knessy--comparator-make-cpu-usage (column-num)
   (lambda (x y)
     "Returns t if x<y"
     (let ((x-cpu (aref (cadr x) column-num))  ; extract the strings
@@ -44,7 +44,7 @@
        (knessy--convert-cpu-units-millis (car (knessy--parse-x-slash-y x-cpu)))
        (knessy--convert-cpu-units-millis (car (knessy--parse-x-slash-y y-cpu)))))))
 
-(defun knessy--make-comparator-cpu-ceiling (column-num)
+(defun knessy--comparator-make-cpu-ceiling (column-num)
   (lambda (x y)
     "Returns t if x<y"
     (let ((x-cpu (aref (cadr x) column-num))  ; extract the strings
@@ -54,7 +54,7 @@
        (knessy--convert-cpu-units-millis (cdr (knessy--parse-x-slash-y x-cpu)))
        (knessy--convert-cpu-units-millis (cdr (knessy--parse-x-slash-y y-cpu)))))))
 
-(defun knessy--make-comparator-mem-usage (column-num)
+(defun knessy--comparator-make-mem-usage (column-num)
   (lambda (x y)
     "Returns t if x<y"
     (let ((x-mem (aref (cadr x) column-num))  ; extract the strings
@@ -64,7 +64,7 @@
        (knessy--convert-size-units-bytes (car (knessy--parse-x-slash-y x-mem)))
        (knessy--convert-size-units-bytes (car (knessy--parse-x-slash-y y-mem)))))))
 
-(defun knessy--make-comparator-mem-ceiling (column-num)
+(defun knessy--comparator-make-mem-ceiling (column-num)
   (lambda (x y)
     "Returns t if x<y"
     (let ((x-mem (aref (cadr x) column-num))  ; extract the strings
@@ -74,7 +74,7 @@
        (knessy--convert-size-units-bytes (cdr (knessy--parse-x-slash-y x-mem)))
        (knessy--convert-size-units-bytes (cdr (knessy--parse-x-slash-y y-mem)))))))
 
-(defun knessy--make-comparator-percentage (column-num)
+(defun knessy--comparator-make-percentage (column-num)
   (lambda (x y)
     "Returns t if x<y"
     (let ((x-value (aref (cadr x) column-num))  ; extract the strings
