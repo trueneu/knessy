@@ -96,6 +96,9 @@ If buffer-or-name is nil return current buffer's mode."
   (buffer-local-value 'major-mode
    (if buffer-or-name (get-buffer buffer-or-name) (current-buffer))))
 
+(defun knessy--knessy-buffer? (buffer-name)
+  (s-starts-with? (s-concat "*" knessy-base-buffer-name) buffer-name))
+
 (defun knessy-switch-buffer (&optional all)
   "Switch to another Knessy buffer. Without ALL, lists only buffers
 in Knessy mode, else lists all existing buffers."
@@ -105,7 +108,7 @@ in Knessy mode, else lists all existing buffers."
                                (mapcar #'buffer-name)
                                (-filter (lambda (s)
                                           (and
-                                           (s-starts-with? "*knessy" s)
+                                           (knessy--knessy-buffer? s)
                                            (if all t
                                              (eq 'knessy-mode (knessy--buffer-mode s))))))))
          (chosen-buf-name (completing-read "Choose the buffer: " candidate-names)))
@@ -118,13 +121,13 @@ in Knessy mode, else lists all existing buffers."
   (when (yes-or-no-p "Really kill all Knessy buffers?")
     (->> (buffer-list)
          (mapcar #'buffer-name)
-         (-filter (lambda (s) (s-starts-with? "*knessy" s)))
+         (-filter #'knessy--knessy-buffer?)
          (mapcar #'kill-buffer))))
 
 (defun knessy-rename (name)
   "Rename current Knessy buffer to NAME."
   (interactive "MRename Knessy buffer: ")
-  (let ((new-name (knessy--generate-buffer-name knessy-base-buffer-name name)))
+  (let ((new-name (knessy--main-buffer-name knessy-base-buffer-name name)))
     (rename-buffer new-name)))
 
 ;; TODO: maybe optimise mark repainting by changing the entry directly
@@ -464,14 +467,14 @@ Set SYNC to non-nil to make the call synchronous (useful for debugging)."
   ["Do"
    ("d" "display" knessy--display)])
 
-(defun knessy--generate-buffer-name (base suffix)
+(defun knessy--main-buffer-name (base suffix)
   (if suffix
       (format "*%s - %s*" base suffix)
     (format "*%s*" base)))
 
 (defun knessy-get-new-buffer ()
   (let* ((buf-name (generate-new-buffer-name
-                    (knessy--generate-buffer-name knessy-base-buffer-name nil)))
+                    (knessy--main-buffer-name knessy-base-buffer-name nil)))
          (buf (knessy--utils-make-buffer buf-name)))
     (push buf-name knessy-buffer-list)
     buf))
