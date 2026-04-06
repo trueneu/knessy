@@ -63,4 +63,17 @@ in-place, the old list reference does not remain valid."
     (ht-set current-table last-key value)
     value))
 
+;; TODO: can generalize this to readlines and save to a list
+(defun knessy--utils-read-buffer (buf &optional no-kill)
+  (let (new-cache)
+    (with-current-buffer buf
+      (goto-char (point-min))
+      (while (not (eobp))
+        (let ((context (s-trim (thing-at-point 'line))))
+          (push context new-cache))
+        (forward-line 1))
+      (unless no-kill
+        (kill-buffer)))
+    new-cache))
+
 (provide 'knessy-utils)
