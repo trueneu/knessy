@@ -2,7 +2,7 @@
 
 (require 'knessy-utils)
 
-(defun knessy--make-comparator-time (column-num)
+(defun knessy--comparator-make-time (column-num)
   (lambda (x y)
     "Returns t if x<y"
     (let ((x-time (aref (cadr x) column-num))  ; extract the strings
@@ -14,7 +14,7 @@
 
 ;; TODO: these comparators all look awfully alike... generalise them
 
-(defun knessy--make-comparator-restarts-count (column-num)
+(defun knessy--comparator-make-restarts-count (column-num)
   (lambda (x y)
     "Returns t if x<y"
     (let ((x-restarts (aref (cadr x) column-num))  ; extract the strings

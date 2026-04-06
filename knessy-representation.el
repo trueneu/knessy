@@ -209,9 +209,9 @@ Specify empty hashtable if no post-processing is desired.
           (list column
                 (ht-get widths column knessy-default-column-width)
                 (cond ((s-equals? "RESTARTS" column)
-                       (knessy--make-comparator-time column-counter))
+                       (knessy--comparator-make-time column-counter))
                       ((s-equals? "AGE" column)
-                       (knessy--make-comparator-time column-counter))
+                       (knessy--comparator-make-time column-counter))
                       ((s-equals? "RDY" column)
                        (knessy--make-comparator-ready column-counter))
                       ((s-equals? "CPU(r)" column)
