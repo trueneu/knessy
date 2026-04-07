@@ -33,7 +33,7 @@
 
 ;; FIXME: this won't get updated when knessy-default-view-string is updated...
 (defcustom knessy-default-view-alist
-  `(("pods" . ,knessy-default-view-string))
+  `(("pods" . "top"))
   "ALIST of resource kind to the view name that's applied by default")
 
 (defvar knessy--views-last-selected (ht)
@@ -45,6 +45,7 @@
 ;;   :type 'sexp
 ;;   :group 'knessy)
 
+;; TODO: verify that if at least one container doesn't have requests/limits set, pod shows "n/a"
 (defcustom knessy-views
   (ht ('("pods" . "top")
        `((:columns . ("NAME" "RDY" "STATUS" "RESTARTS" "CPU(r)" "CPU(l)" "MEM(r)" "MEM(l)" "NODE" "AGE"))
