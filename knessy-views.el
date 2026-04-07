@@ -31,9 +31,9 @@
 
 ;; TODO: make a kind -> view table, allow multiple views per kind
 
-;; FIXME: this won't get updated when knessy-view-default is updated...
+;; FIXME: this won't get updated when knessy-default-view-string is updated...
 (defcustom knessy-default-view-alist
-  `(("pods" . ,knessy-view-default))
+  `(("pods" . ,knessy-default-view-string))
   "ALIST of resource kind to the view name that's applied by default")
 
 (defvar knessy--views-last-selected (ht)
@@ -146,7 +146,7 @@
          (ht-set res kind '()))
        (ht-update-with! res kind (lambda (l) (cons view l)))))
    (dolist (kind (ht-keys res) res)
-     (ht-update-with! res kind (lambda (l) (cons knessy-view-default l)))))
+     (ht-update-with! res kind (lambda (l) (cons knessy-default-view-string l)))))
 
   "kind->views-list hashtable")
 

@@ -228,23 +228,23 @@ in Knessy mode, else lists all existing buffers."
   (setq knessy--kind
         (completing-read "Kind: "
                          (knessy--kinds)))
-  (setq knessy--view (asoc-get knessy-default-view-alist knessy--kind knessy-view-default)))
+  (setq knessy--view (asoc-get knessy-default-view-alist knessy--kind knessy-default-view-string)))
 
-(defcustom knessy-view-default "default"
+(defcustom knessy-default-view-string "default"
   "String depicting default view for a kind."
   :type 'string
   :group 'knessy)
 
 (defvar-local
   knessy--view
-  knessy-view-default)
+  knessy-default-view-string)
 
 (defun knessy--select-view ()
   (interactive)
   (setq knessy--view
         (completing-read
          "View: "
-         (ht-get knessy--views-by-kind knessy--kind (list knessy-view-default)))))
+         (ht-get knessy--views-by-kind knessy--kind (list knessy-default-view-string)))))
 
 (transient-define-prefix
   knessy-config () "doc string"
@@ -535,7 +535,7 @@ Set SYNC to non-nil to make the call synchronous (useful for debugging)."
                             knessy--context
                             knessy--namespace
                             knessy--kind)
-                    (if (s-equals? knessy-view-default knessy--view)
+                    (if (s-equals? knessy-default-view-string knessy--view)
                         ""
                       (s-concat " (" knessy--view ")"))))))
   (run-mode-hooks 'knessy-mode-hook))
