@@ -227,7 +227,24 @@ in Knessy mode, else lists all existing buffers."
   (interactive)
   (setq knessy--kind
         (completing-read "Kind: "
-                         (knessy--kinds))))
+                         (knessy--kinds)))
+  (setq knessy--view (asoc-get knessy-default-view-alist knessy--kind knessy-view-default)))
+
+(defcustom knessy-view-default "default"
+  "String depicting default view for a kind."
+  :type 'string
+  :group 'knessy)
+
+(defvar-local
+  knessy--view
+  knessy-view-default)
+
+(defun knessy--select-view ()
+  (interactive)
+  (setq knessy--view
+        (completing-read
+         "View: "
+         (ht-get knessy--views-by-kind knessy--kind (list knessy-view-default)))))
 
 (transient-define-prefix
   knessy-config () "doc string"
@@ -235,7 +252,8 @@ in Knessy mode, else lists all existing buffers."
      ("k" "kind" knessy--select-kind)
      ("n" "namespace" knessy--select-namespace)
      ("c" "context" knessy--select-context)
-     ("f" "config-file" knessy--select-config-file)])
+     ("f" "config-file" knessy--select-config-file)
+     ("v" "view" knessy--select-view)])
 
 ;; TODO: write this
 (defun knessy--jump-children ()
@@ -355,11 +373,11 @@ If omitted, use the current one (for synchronous calls)."
             (pre-process-ht (asoc-get call :pre-process (ht)))
             (post-process-ht (asoc-get call :post-process (ht)))
             (post-process-item (asoc-get call :post-process-item nil))
-            (kind (asoc-get call :resource knessy--kind)))
+            (knessy--kind (asoc-get call :resource knessy--kind)))
         ;; TODO: clean this up and teach it various call types
         ;; TODO: continue writing the function forming the cmd string probably
         ;; TODO: dispatch table shouldn't depend on the exec style (sync/async), extract it
-        (let ((promise (knessy--shell-exec-aio (knessy--kubectl-call->cmd call knessy--context knessy--namespace kind)
+        (let ((promise (knessy--shell-exec-aio (knessy--kubectl-call->cmd call)
                                                buf buferr (lambda () (knessy--parse-table-kubectl-output
                                                                       buf
                                                                       headers
@@ -377,8 +395,8 @@ If omitted, use the current one (for synchronous calls)."
             (pre-process-ht (asoc-get call :pre-process (ht)))
             (post-process-ht (asoc-get call :post-process (ht)))
             (post-process-item (asoc-get call :post-process-item nil))
-            (kind (asoc-get call :kind knessy--kind)))
-        (knessy--shell-exec (knessy--kubectl-call->cmd call knessy--context knessy--namespace kind) buf)
+            (knessy--kind (asoc-get call :kind knessy--kind)))
+        (knessy--shell-exec (knessy--kubectl-call->cmd call) buf)
         (push (knessy--parse-table-kubectl-output buf headers pre-process-ht post-process-ht post-process-item) results)))
     results))
 
@@ -394,11 +412,11 @@ Made so spamming refreshes doesn't result in 100 of kubectl calls.")
 Set SYNC to non-nil to make the call synchronous (useful for debugging)."
   (interactive "P")
   (unless knessy--refresh-in-progress
-    (setq knessy--refresh-in-progress t)
+    (setq knessy--refresh-in-progress nil)
     (message "Refreshing...")
     (let* ((display-buf (current-buffer)))
       (knessy--cache-labels-populate-async)
-      (let* ((view (ht-get knessy-views knessy--kind
+      (let* ((view (ht-get knessy-views (cons knessy--kind knessy--view)
                            `((:calls . (((:type . ,knessy-call-default-type)))))))
              (calls (asoc-get view :calls))
              (post-process-fn (asoc-get view :post-process-item nil))
@@ -512,10 +530,14 @@ Set SYNC to non-nil to make the call synchronous (useful for debugging)."
   (add-to-list 'mode-line-misc-info
                '(:eval
                  (when (eq 'knessy-mode (knessy--buffer-mode))
-                   (format "%s/%s/%s"
-                           knessy--context
-                           knessy--namespace
-                           knessy--kind))))
+                   (concat
+                    (format "%s/%s/%s"
+                            knessy--context
+                            knessy--namespace
+                            knessy--kind)
+                    (if (s-equals? knessy-view-default knessy--view)
+                        ""
+                      (s-concat " (" knessy--view ")"))))))
   (run-mode-hooks 'knessy-mode-hook))
 
 ;; TODO: next thing, implement data <-> display link to hash out the data architecture
