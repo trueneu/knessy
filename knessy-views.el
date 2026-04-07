@@ -31,6 +31,13 @@
 
 ;; TODO: make a kind -> view table, allow multiple views per kind
 
+(defcustom knessy-default-view-alist
+  '(("pods" . "default"))
+  "ALIST of resource kind to the view name that's applied by default")
+
+(defvar knessy--views-last-selected (ht)
+  "Contains the last selected view for a kind")
+
 (defcustom knessy-views
   (ht ("pods" `((:columns . ("NAME" "RDY" "STATUS" "RESTARTS" "CPU(r)" "CPU(l)" "MEM(r)" "MEM(l)" "NODE" "AGE"))
                 (:column-rename . ,(ht ("RDY" "READY")))
@@ -122,8 +129,12 @@
    0
    1))
 
+;;(defvar knessy--views-by-kind ())
 
-
+(comment
+ (dolist (kind-view (ht-keys knessy-views))
+   (let ((kind (car kind-view))
+         (view (cdr kind-view))))))
 
 ;; (defcustom knessy-views
 ;;   (ht ("pods" `((:columns . ("NAME" "NODE"))
