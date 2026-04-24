@@ -33,5 +33,4 @@
             new-data))
       data)))
 
-
 (provide 'knessy-cache)

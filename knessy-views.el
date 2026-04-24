@@ -46,6 +46,8 @@
 ;;   :group 'knessy)
 
 ;; TODO: verify that if at least one container doesn't have requests/limits set, pod shows "n/a"
+;; TODO: if a container is dead with Init:Error (or most likely isn't running for any other reason) it won't even appear in the top. Hence it will be missing from the output
+;; FIXME move this to "top" back again
 (defcustom knessy-views
   (ht ('("pods" . "top")
        `((:columns . ("NAME" "RDY" "STATUS" "RESTARTS" "CPU(r)" "CPU(l)" "MEM(r)" "MEM(l)" "NODE" "AGE"))

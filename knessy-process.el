@@ -30,6 +30,7 @@
                      :command (list "/bin/bash" "-c" cmd)
                      :buffer buf
                      :stderr buferr
+                     ;; TODO: remove this leave default?
                      :filter (knessy--make-process-filter-to-buffer buf)
                      :sentinel (knessy--make-callback-sentinel callback)))))))
 
@@ -60,6 +61,10 @@
 ;; async read: https://github.com/Silex/docker.el/blob/master/docker-volume.el#L88-L92 , https://github.com/skeeto/emacs-aio/issues/1
 ;; https://github.com/skeeto/emacs-aio/issues/19
 (cl-defun knessy--shell-exec-aio (cmd buf buferr callback)
+  (knessy--log 3 (format "Running %s, output: %s, stderr: %s"
+                         cmd
+                         (buffer-name buf)
+                         (buffer-name buferr)))
   (let ((promise (aio-promise)))
     (prog1 promise
       (knessy--shell-exec-async2

@@ -15,6 +15,22 @@
    ;; the default is just the length of the column name itself
    (length k)))
 
+(comment
+ (knessy--parse-table-kubectl-output (get-buffer "*knessy-aio-display*<35>"))
+ (knessy--parse-table-kubectl-output
+  (get-buffer "*knessy-aio-display*<41>")
+  '((:static . ("NAMESPACE" "NAME"))
+    (:repeated . ("CPUREQ" "MEMREQ" "CPULIM" "MEMLIM")))
+  (ht ("CPUREQ" `((:reduce-fn . ,(knessy--make-convert-and-add-reduce-fn #'knessy--convert-cpu-units-millis))
+                  (:mixin-fn . ,(lambda (v) (when (s-blank? v) (cons "CPUREQNOTSET" t))))))
+      ("CPULIM" `((:reduce-fn . ,(knessy--make-convert-and-add-reduce-fn #'knessy--convert-cpu-units-millis))
+                  (:mixin-fn . ,(lambda (v) (when (s-blank? v) (cons "CPULIMNOTSET" t))))))
+      ("MEMREQ" `((:reduce-fn . ,(knessy--make-convert-and-add-reduce-fn #'knessy--convert-size-units-bytes))
+                  (:mixin-fn . ,(lambda (v) (when (s-blank? v) (cons "MEMREQNOTSET" t))))))
+      ("MEMLIM" `((:reduce-fn . ,(knessy--make-convert-and-add-reduce-fn #'knessy--convert-size-units-bytes))
+                  (:mixin-fn . ,(lambda (v) (when (s-blank? v) (cons "MEMLIMNOTSET" t)))))))))
+
+
 (cl-defun knessy--parse-table-kubectl-output
     (buf &optional headers (pre-process-ht (ht)) (post-process-ht (ht)) post-process-fn)
   "Parses buffer BUF of information that was output by a kubectl command,
@@ -44,6 +60,7 @@ POST-PROCESS-HT is a hashtable of form (COL1 func)
 Every column specified will be modified by applying func to its value.
 Specify empty hashtable if no post-processing is desired.
 "
+  (knessy--log 4 (format "Started parsing buffer %s" (buffer-name buf)))
   (let ((header-static)
         (header-repeated)
         (items-ht (ht))
@@ -72,6 +89,7 @@ Specify empty hashtable if no post-processing is desired.
         (setq header-repeated (asoc-get headers :repeated)))
 
       (while (not (eobp))
+        (knessy--log 5 (format "Working on line: %s" (thing-at-point 'line t)))
         (let* ((values (s-split (rx (or (>= 2 whitespace) "|"))
                                 (s-trim (thing-at-point 'line t))))
                (item (ht))
@@ -153,6 +171,7 @@ Specify empty hashtable if no post-processing is desired.
       ;; TODO: come up with debug toggles to turn this off and on again
       ;; (message "Parsed results:")
       ;; (princ result)
+      (knessy--log 4 (format "Finished parsing %s" (buffer-name buf)))
 
       result)))
 
@@ -185,7 +204,7 @@ Specify empty hashtable if no post-processing is desired.
     (dolist (k (ht-keys items-ht))
       (ht-update-with! items-ht k
                        (lambda (item-entry)
-                         (ht-merge item-entry (ht-get table k)))))))
+                         (ht-merge item-entry (ht-get table k (ht))))))))
 
 (comment
  (let* ((item1 (ht (:key1 :value1)))
@@ -200,6 +219,7 @@ Specify empty hashtable if no post-processing is desired.
 ;; although the precomputed variant is more flexible
 ;; in any case this has to happen in the "collate multiple queries results" phase
 (defun knessy--make-tablist-format (columns widths)
+  (knessy--log 3 "In knessy--make-tablist-format")
   (let ((column-counter 0))
     (apply
      #'vector
@@ -238,6 +258,7 @@ Specify empty hashtable if no post-processing is desired.
     name))
 
 (defun knessy--make-tablist-entries (columns rename items)
+  (knessy--log 3 "In knessy--make-tablist-entries")
   (mapcar
    (lambda (item)
      (let ((id (car item))
@@ -262,12 +283,17 @@ Specify empty hashtable if no post-processing is desired.
 
   (setq tabulated-list-format (knessy--make-tablist-format columns widths))
   (setq tabulated-list-entries (knessy--make-tablist-entries columns rename items))
+  (knessy--log 3 "Before init header...")
   (tabulated-list-init-header)
   ;; (princ "FORMAT\n")
   ;; (princ tabulated-list-format)
   ;; (princ "\nENTRIES\n")
   ;; (princ tabulated-list-entries)
-  (tabulated-list-print t))
+  (knessy--log 3 "Before list print...")
+  (unless knessy--table-remember-pos
+    (tabulated-list-sort 0))
+  (tabulated-list-print knessy--table-remember-pos)
+  (setq knessy--table-remember-pos t))
 
 
 (comment

@@ -3,16 +3,30 @@
 ;; depends on s.el, asoc.el
 
 (defvar knessy--size-units-alist '(("Ki" . Ki)
+                                   ("K" . K)
                                    ("Mi" . Mi)
+                                   ("M" . M)
                                    ("Gi" . Gi)
+                                   ("G" . G)
                                    ("Ti" . Ti)
+                                   ("T" . T)
                                    ("" . B)))
 
 (defvar knessy--size-unit-multipliers-alist `((Ti . ,(* 1024 1024 1024 1024))
+                                              (T . ,(* 1000 1000 1000 1000))
                                               (Gi . ,(* 1024 1024 1024))
+                                              (G . ,(* 1000 1000 1000))
                                               (Mi . ,(* 1024 1024))
+                                              (M . ,(* 1000 1000))
                                               (Ki . 1024)
+                                              (K . 1000)
                                               (B . 1)))
+
+(defvar knessy--size-unit-pow2-multipliers-alist `((Ti . ,(* 1024 1024 1024 1024))
+                                                   (Gi . ,(* 1024 1024 1024))
+                                                   (Mi . ,(* 1024 1024))
+                                                   (Ki . 1024)
+                                                   (B . 1)))
 
 (defvar knessy--time-units-alist '(("s" . s)
                                    ("m" . m)
@@ -45,7 +59,7 @@ MULTS is an alist of multipliers"
 S is the string."
   (if (or (s-equals? "-" s) (s-blank? s))
       0
-    (when (string-match (rx bol (group (one-or-more digit)) (group (? (or "Ki" "Mi" "Gi" "Ti")) eol))
+    (when (string-match (rx bol (group (one-or-more digit)) (group (? (or "Ki" "Mi" "Gi" "Ti" "K" "M" "G" "T")) eol))
                         s)
       (let* ((num (string-to-number (match-string 1 s)))
              (units (asoc-get knessy--size-units-alist (match-string 2 s)))
@@ -53,11 +67,14 @@ S is the string."
              (bytes (* num multiplier)))
         bytes))))
 
+(comment
+ (knessy--convert-size-units-bytes "500M"))
+
 (defun knessy--convert-size-units-str (bytes)
   "Convert bytes into a string with an appropriate multiplier."
   (if (null bytes)
       ""
-    (let* ((appropriate-name-mult (knessy--appropriate-mult bytes knessy--size-unit-multipliers-alist))
+    (let* ((appropriate-name-mult (knessy--appropriate-mult bytes knessy--size-unit-pow2-multipliers-alist))
            (appropriate-name (car appropriate-name-mult))
            (appropriate-mult (cdr appropriate-name-mult))
            (scaled (/ bytes appropriate-mult)))
@@ -140,7 +157,7 @@ S is the string."
 
                     s)
       (match-string 1 s)
-    "0"))
+    "-1"))
 
 (defun knessy--extract-digits-before-paren (s)
   (if (string-match (rx (group (one-or-more digit))
@@ -151,11 +168,11 @@ S is the string."
     "0"))
 
 (comment
- (knessy--extract-percentage "toheunoenuth"))
+ (knessy--extract-percentage "? (1/1)"))
 
 
 (comment
- (knessy--parse-x-slash-y "2% (10m/100m)"))
+ (knessy--extract-x-slash-y "2% (10m/100m)"))
 
 (comment
  (knessy--convert-time-units-seconds "10d"))
