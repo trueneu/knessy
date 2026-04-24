@@ -258,33 +258,10 @@
        (knessy--cache-namespaces-populate-async)
        (knessy--cache-kinds-populate-async)))))
 
-;; FIXME: why would we go over all the contexts here?
-(defun knessy--cache-labels-populate-async ()
-  (dolist (ctx (knessy--contexts))
-    (let ((buf (knessy--utils-make-buffer
-                (generate-new-buffer-name
-                 (knessy--utils-kubectl-buffer-name "labels-cache"))))
-          (buferr (knessy--utils-make-buffer
-                   (generate-new-buffer-name
-                    (knessy--utils-kubectl-buffer-name "labels-cache" nil nil nil t)))))
-
-      ;; TODO: the actual command should not live here
-      (knessy--shell-exec-async2
-       (knessy--kubectl-get-labels-cmd)
-       buf
-       buferr
-       (lambda ()
-         (knessy--cache-set
-          knessy--cache
-          (if (knessy--namespace-all? knessy--namespace)
-              (list :labels ctx knessy--kind)
-            (list :labels ctx knessy--namespace knessy--kind))
-          (apply
-           #'knessy--utils-ht-merge-duplicates-to-sets
-           (mapcar
-            (lambda (s) (json-parse-string s))
-            (knessy--utils-read-buffer buf t)))
-          knessy-label-cache-ttl))))))
+;; FIXME: any async functions should not be dependent on buffer-local variables because the user may
+;;   change the current buffer while the function is running :D
+;;   or at least capture those early enough.
+;;   or pass those explicitly at the call time.
 
 (defun knessy--cache-labels-populate-async ()
   (let ((buf (knessy--utils-make-buffer
@@ -293,16 +270,19 @@
         (buferr (knessy--utils-make-buffer
                  (generate-new-buffer-name
                   (knessy--utils-kubectl-buffer-name "labels-cache" nil nil nil t)))))
-
+    ;; FIXME: this is probably bad design -- we always force renew, no matter the ttl
+    ;; this should be an aio function that checks the ttl first, and then calls knessy--cache-set
     (knessy--shell-exec-async2
      (knessy--kubectl-get-labels-cmd)
      buf
      buferr
      (lambda ()
+       (message (format "ctx: %s ns: %s kind: %s" knessy--context knessy--namespace knessy--kind))
+       (message (format "current-buf: %s" (buffer-name)))
        (knessy--cache-set
         knessy--cache
-        ;; maybe (knessy--namespace-all?) should take no arguments
-        (if (or (knessy--namespace-all? knessy--namespace)
+        ;; TODO: maybe (knessy--namespace-all?) should take no arguments
+        (if (or (knessy--namespace-all? knessy--namespace)  ;; FIXME: knessy--namespace is "default" here? because buffer-local?
                 (knessy--kind-global?))
             (list :labels knessy--context knessy--kind)
           (list :labels knessy--context knessy--namespace knessy--kind))
@@ -313,12 +293,35 @@
           (knessy--utils-read-buffer buf t)))
         knessy-label-cache-ttl)))))
 
+;; FIXME: sync label cache renewal steals focus to the buffer with results, same as with main display functions.
+;; TODO: cache doesn't work at all for labels?
 (comment
- (let ((knessy--context "minikube")
-       (knessy--namespace "kube-system")
+ (let ((knessy--context "vam-ttd-p-01")
+       (knessy--namespace "spark-dataproc-prod")
        (knessy--kind "pods"))
    (knessy--cache-labels-populate-async))
- (princ (ht-get (ht-get (ht-get knessy--cache :labels) "minikube") "pods")))
+
+ (let ((knessy--context "vam-ttd-p-01")
+       (knessy--namespace "monitoring")
+       (knessy--kind "pods")
+       (buf (get-buffer "*knessy-vam-ttd-p-01-monitoring-pods-labels-cache*<40>")))
+   (lambda ()
+       (knessy--cache-set
+        knessy--cache
+        ;; TODO: maybe (knessy--namespace-all?) should take no arguments
+        (if (or (knessy--namespace-all? knessy--namespace)
+                (knessy--kind-global?))
+            (list :labels knessy--context knessy--kind)
+          (list :labels knessy--context knessy--namespace knessy--kind))
+        (apply
+         #'knessy--utils-ht-merge-duplicates-to-sets
+         (mapcar
+          (lambda (s) (json-parse-string s))
+          (knessy--utils-read-buffer buf t)))
+        knessy-label-cache-ttl)))
+
+ (princ (ht-get (ht-get (ht-get knessy--cache :labels) "minikube") "pods"))
+ (princ (ht-get (ht-get (ht-get (ht-get knessy--cache :labels) "vam-ttd-p-01") "monitoring") "pods")))
 
 
 ;; TODO: kubectl forming commands already becoming dirty, generalize

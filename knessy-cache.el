@@ -27,10 +27,14 @@
          (data (ht-get target-table :data nil)))
     (if (or force (not data) (time-less-p refresh-at now))
         (progn
+          (knessy--log 2 (format "Refreshing cache for path:"))
+          (knessy--log 2 keys)
           (let ((new-data (funcall refresh-fn)))
             (ht-set target-table :data new-data)
             (ht-set target-table :refresh-at (time-add now ttl))
             new-data))
+      (knessy--log 2 (format "Accessing cached data for path:"))
+      (knessy--log 2 keys)
       data)))
 
 (provide 'knessy-cache)

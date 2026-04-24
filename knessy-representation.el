@@ -283,18 +283,11 @@ Specify empty hashtable if no post-processing is desired.
 
   (setq tabulated-list-format (knessy--make-tablist-format columns widths))
   (setq tabulated-list-entries (knessy--make-tablist-entries columns rename items))
-  (knessy--log 3 "Before init header...")
   (tabulated-list-init-header)
-  ;; (princ "FORMAT\n")
-  ;; (princ tabulated-list-format)
-  ;; (princ "\nENTRIES\n")
-  ;; (princ tabulated-list-entries)
-  (knessy--log 3 "Before list print...")
   (unless knessy--table-remember-pos
-    (tabulated-list-sort 0))
+    (tabulated-list-sort (-elem-index "NAME" columns)))
   (tabulated-list-print knessy--table-remember-pos)
   (setq knessy--table-remember-pos t))
-
 
 (comment
  (knessy--make-tablist '("NAME" "NAMESPACE") nil)
