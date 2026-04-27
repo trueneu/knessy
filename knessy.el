@@ -209,17 +209,10 @@ in Knessy mode, else lists all existing buffers."
 ;; TODO: these should be set from the actual available resources,
 ;;   or from history, not like this
 
-;; (defvar-local knessy--namespace
-;;   "default")
-;; (defvar-local knessy--context
-;;   "default")
-;; (defvar-local knessy--resource-type
-;;   "pods")
-
 (defvar-local knessy--namespace
-  "monitoring")
+  "default")
 (defvar-local knessy--context
-  "vam-ttd-p-01")
+  "default")
 (defvar-local knessy--resource-type
   "pods")
 
@@ -321,12 +314,6 @@ in Knessy mode, else lists all existing buffers."
 
 (defun knessy--resource-type-global? (resource-type)
   (not (knessy--resource-type-namespaced? resource-type)))
-
-(comment
- (let ((knessy--context "vam-ttd-p-01")
-       (knessy--namespace "adhoc-testing")
-       (knessy--resource-type "nodes"))
-   (knessy--resource-type-global? knessy--resource-type)))
 
 ;; TODO: write this
 (defun knessy--filter-label ()
