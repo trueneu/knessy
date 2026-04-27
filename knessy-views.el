@@ -29,15 +29,15 @@
 
 ;; TODO: make all structures alists again?.. since they're faster than ht, except items collection maybe
 
-;; TODO: make a kind -> view table, allow multiple views per kind
+;; TODO: make a resource-type -> view table, allow multiple views per resource-type
 
 ;; FIXME: this won't get updated when knessy-default-view-string is updated...
 (defcustom knessy-default-view-alist
-  `(("pods" . "top"))
-  "ALIST of resource kind to the view name that's applied by default")
+  `(("pods" . "default"))
+  "ALIST of resource resource-type to the view name that's applied by default")
 
 (defvar knessy--views-last-selected (ht)
-  "Contains the last selected view for a kind")
+  "Contains the last selected view for a resource-type")
 
 ;; (defcustom knessy-default-view
 ;;   '(:calls . (((:type . :get))))
@@ -140,18 +140,18 @@
    0
    1))
 
-(defvar knessy--views-by-kind
+(defvar knessy--views-by-resource-type
   (let ((res (ht)))
-   (dolist (kind-view (ht-keys knessy-views))
-     (let ((kind (car kind-view))
-           (view (cdr kind-view)))
-       (unless (ht-contains? res kind)
-         (ht-set res kind '()))
-       (ht-update-with! res kind (lambda (l) (cons view l)))))
-   (dolist (kind (ht-keys res) res)
-     (ht-update-with! res kind (lambda (l) (cons knessy-default-view-string l)))))
+   (dolist (resource-type-view (ht-keys knessy-views))
+     (let ((resource-type (car resource-type-view))
+           (view (cdr resource-type-view)))
+       (unless (ht-contains? res resource-type)
+         (ht-set res resource-type '()))
+       (ht-update-with! res resource-type (lambda (l) (cons view l)))))
+   (dolist (resource-type (ht-keys res) res)
+     (ht-update-with! res resource-type (lambda (l) (cons knessy-default-view-string l)))))
 
-  "kind->views-list hashtable")
+  "resource-type->views-list hashtable")
 
 (comment)
 

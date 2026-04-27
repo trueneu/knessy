@@ -20,7 +20,7 @@
     (princ "\n")))
 
 (defcustom knessy-default-view-string "default"
-  "String depicting default view for a kind."
+  "String depicting default view for a resource-type."
   :type 'string
   :group 'knessy)
 
@@ -213,14 +213,14 @@ in Knessy mode, else lists all existing buffers."
 ;;   "default")
 ;; (defvar-local knessy--context
 ;;   "default")
-;; (defvar-local knessy--kind
+;; (defvar-local knessy--resource-type
 ;;   "pods")
 
 (defvar-local knessy--namespace
   "monitoring")
 (defvar-local knessy--context
   "vam-ttd-p-01")
-(defvar-local knessy--kind
+(defvar-local knessy--resource-type
   "pods")
 
 (defun knessy--select-config-file (filename)
@@ -255,12 +255,14 @@ in Knessy mode, else lists all existing buffers."
 
 
 ;; TODO: *all*!
-(defun knessy--select-kind ()
+(defun knessy--select-resource-type ()
   (interactive)
-  (setq knessy--kind
+  (setq knessy--resource-type
         (completing-read "Kind: "
-                         (knessy--kinds)))
-  (setq knessy--view (asoc-get knessy-default-view-alist knessy--kind knessy-default-view-string))
+                         (knessy--resource-types)))
+  (setq knessy--view
+        (or (ht-get knessy--last-selected-view knessy--resource-type nil)
+            (asoc-get knessy-default-view-alist knessy--resource-type knessy-default-view-string)))
   (setq knessy--table-remember-pos nil))
 
 (defvar-local
@@ -278,17 +280,16 @@ in Knessy mode, else lists all existing buffers."
   (setq knessy--view
         (completing-read
          "View: "
-         (ht-get knessy--views-by-kind knessy--kind (list knessy-default-view-string))
+         (ht-get knessy--views-by-resource-type knessy--resource-type (list knessy-default-view-string))
          nil
-         t
-         (comment (ht-get knessy--last-selected-view knessy--view knessy-default-view-string))))
-  (ht-set knessy--last-selected-view knessy--kind knessy--view)
+         t))
+  (ht-set knessy--last-selected-view knessy--resource-type knessy--view)
   (setq knessy--table-remember-pos nil))
 
 (transient-define-prefix
   knessy-config () "doc string"
   ["Configure"
-     ("k" "kind" knessy--select-kind)
+     ("t" "resource-type" knessy--select-resource-type)
      ("n" "namespace" knessy--select-namespace)
      ("c" "context" knessy--select-context)
      ("f" "config-file" knessy--select-config-file)
@@ -314,18 +315,18 @@ in Knessy mode, else lists all existing buffers."
 
 (defvar-local knessy--label-selectors '())
 
-(defun knessy--kind-namespaced? (kind)
-  "Return T if the current kind is namespaced, nil if it's global."
-  (ht-contains? (knessy--kinds-namespaced) kind))
+(defun knessy--resource-type-namespaced? (resource-type)
+  "Return T if the current resource-type is namespaced, nil if it's global."
+  (ht-contains? (knessy--resource-types-namespaced) resource-type))
 
-(defun knessy--kind-global? (kind)
-  (not (knessy--kind-namespaced? kind)))
+(defun knessy--resource-type-global? (resource-type)
+  (not (knessy--resource-type-namespaced? resource-type)))
 
 (comment
  (let ((knessy--context "vam-ttd-p-01")
        (knessy--namespace "adhoc-testing")
-       (knessy--kind "nodes"))
-   (knessy--kind-global? knessy--kind)))
+       (knessy--resource-type "nodes"))
+   (knessy--resource-type-global? knessy--resource-type)))
 
 ;; TODO: write this
 (defun knessy--filter-label ()
@@ -333,10 +334,10 @@ in Knessy mode, else lists all existing buffers."
   (let ((current-label nil)
         (current-value nil)
         (new-selectors '())
-        ;; if the namespace is ALL or the kind is global
-        (lookup-keys (if (or (knessy--namespace-all? knessy--namespace) (knessy--kind-global? knessy--kind))
-                         (list :labels knessy--context knessy--kind)
-                       (list :labels knessy--context knessy--namespace knessy--kind))))
+        ;; if the namespace is ALL or the resource-type is global
+        (lookup-keys (if (or (knessy--namespace-all? knessy--namespace) (knessy--resource-type-global? knessy--resource-type))
+                         (list :labels knessy--context knessy--resource-type)
+                       (list :labels knessy--context knessy--namespace knessy--resource-type))))
     (while (not (s-equals? current-label knessy-label-selector-finish-choice))
       (setq current-label
             (completing-read
@@ -359,7 +360,7 @@ in Knessy mode, else lists all existing buffers."
 (comment
  (let ((knessy--context "minikube")
        (knessy--namespace "kube-system")
-       (knessy--kind "pods"))
+       (knessy--resource-type "pods"))
    (knessy--filter-label)))
 
 (transient-define-prefix
@@ -389,9 +390,20 @@ If omitted, use the current one (for synchronous calls)."
           (rename (-> knessy--data (asoc-get :headers) (asoc-get :rename)))
           (widths (-> knessy--data (asoc-get :headers) (asoc-get :widths)))
           (items (asoc-get knessy--data :items)))
-      (knessy--make-tablist columns rename items widths)))
+      (if (and (ht? items) (> (ht-size items) 0))
+          (knessy--make-tablist columns rename items widths)
+        (let ((item (ht ("NAME" "No resources found."))))
+          (setq knessy--table-remember-pos nil)
+          (knessy--make-tablist '("NAME")
+                                (ht)
+                                (ht (nil item))
+                                (ht ("NAME" 8)))))))
   (message "Repainted!")
   (knessy--log 3 (format "Now: %s" (current-time-string))))
+
+(comment
+ (let ((abc 'def))
+   (ht (nil abc))))
 
 ;; generic display function arch:
 ;; await on promises from N kubectl queries
@@ -416,7 +428,7 @@ If omitted, use the current one (for synchronous calls)."
             (pre-process-ht (asoc-get call :pre-process (ht)))
             (post-process-ht (asoc-get call :post-process (ht)))
             (post-process-item (asoc-get call :post-process-item nil))
-            (knessy--kind (asoc-get call :resource knessy--kind)))
+            (knessy--resource-type (asoc-get call :resource knessy--resource-type)))
         ;; TODO: clean this up and teach it various call types
         ;; TODO: continue writing the function forming the cmd string probably
         ;; TODO: dispatch table shouldn't depend on the exec style (sync/async), extract it
@@ -446,7 +458,7 @@ If omitted, use the current one (for synchronous calls)."
             (pre-process-ht (asoc-get call :pre-process (ht)))
             (post-process-ht (asoc-get call :post-process (ht)))
             (post-process-item (asoc-get call :post-process-item nil))
-            (knessy--kind (asoc-get call :kind knessy--kind)))
+            (knessy--resource-type (asoc-get call :resource-type knessy--resource-type)))
         (message (buffer-name (current-buffer)))
         (knessy--shell-exec (knessy--kubectl-call->cmd call) buf)
         (push (knessy--parse-table-kubectl-output buf headers pre-process-ht post-process-ht post-process-item) results)
@@ -466,8 +478,8 @@ Made so spamming refreshes doesn't result in 100 of kubectl calls.")
       (setq knessy--refresh-in-progress t))
     (message "Refreshing...")
     (let* ((display-buf (current-buffer)))
-      (knessy--cache-labels-populate-async knessy--context knessy--namespace knessy--kind)
-      (let* ((view (ht-get knessy-views (cons knessy--kind knessy--view)
+      (knessy--cache-labels-populate-async knessy--context knessy--namespace knessy--resource-type)
+      (let* ((view (ht-get knessy-views (cons knessy--resource-type knessy--view)
                            `((:calls . (((:type . ,knessy-call-default-type)))))))
              (calls (asoc-get view :calls))
              (post-process-fn (asoc-get view :post-process-item nil))
@@ -502,8 +514,8 @@ Made so spamming refreshes doesn't result in 100 of kubectl calls.")
     (message "Refreshing...")
     (let* ((display-buf (current-buffer)))
       (message (format "Display buf: %s" (buffer-name display-buf)))
-      (knessy--cache-labels-populate-async knessy--context knessy--namespace knessy--kind)
-      (let* ((view (ht-get knessy-views (cons knessy--kind knessy--view)
+      (knessy--cache-labels-populate-async knessy--context knessy--namespace knessy--resource-type)
+      (let* ((view (ht-get knessy-views (cons knessy--resource-type knessy--view)
                            `((:calls . (((:type . ,knessy-call-default-type)))))))
              (calls (asoc-get view :calls))
              (post-process-fn (asoc-get view :post-process-item nil))
@@ -632,7 +644,7 @@ Made so spamming refreshes doesn't result in 100 of kubectl calls.")
                     (format "%s/%s/%s"
                             knessy--context
                             knessy--namespace
-                            knessy--kind)
+                            knessy--resource-type)
                     (if (s-equals? knessy-default-view-string knessy--view)
                         ""
                       (s-concat " (" knessy--view ")"))))))

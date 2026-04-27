@@ -12,7 +12,7 @@
               (if (or omit-namespace? (knessy--namespace-all? knessy--namespace))
                   ""
                 (s-concat " -n " knessy--namespace))
-              " " verb " "  knessy--kind
+              " " verb " "  knessy--resource-type
               (if (and (not omit-namespace?) (knessy--namespace-all? knessy--namespace))
                   " -A"
                 "")
@@ -26,11 +26,11 @@
     cmd))
 
 (defun knessy--kubectl-get-contexts-cmd ()
-  (let ((knessy--kind "get-contexts"))
+  (let ((knessy--resource-type "get-contexts"))
     (knessy--kubectl-cmd "config" "name" t nil t)))
 
 (defun knessy--kubectl-get-namespaces-cmd ()
-  (let ((knessy--kind "namespaces"))
+  (let ((knessy--resource-type "namespaces"))
     (knessy--kubectl-cmd "get" "custom-columns='NAME:.metadata.name'" t t)))
 
 (defun knessy--kubectl-get-labels-cmd ()
@@ -78,9 +78,9 @@
 (comment
  (let ((knessy--context "minikube")
        (knessy--namespace "kube-system")
-       (knessy--kind "pods"))
+       (knessy--resource-type "pods"))
    (knessy--kubectl-labels)
-   (knessy--cache-get knessy--cache (list :labels knessy--context knessy--namespace knessy--kind) #'knessy--kubectl-labels
+   (knessy--cache-get knessy--cache (list :labels knessy--context knessy--namespace knessy--resource-type) #'knessy--kubectl-labels
                       knessy-label-cache-ttl t))
  (-> knessy--cache
      (ht-get :labels)
@@ -96,23 +96,23 @@
      (cons knessy-all-namespaces-string
        (knessy--kubectl-namespaces)))))
 
-(defun knessy--kubectl-kinds-list ()
-  (let ((buf (knessy--utils-make-buffer (generate-new-buffer-name (knessy--utils-kubectl-buffer-name "kinds" nil t t)))))
+(defun knessy--kubectl-resource-types-list ()
+  (let ((buf (knessy--utils-make-buffer (generate-new-buffer-name (knessy--utils-kubectl-buffer-name "resource-types" nil t t)))))
     (knessy--shell-exec
      "kubectl api-resources --output name"
      buf)
     (knessy--utils-read-buffer buf)))
 
-(defun knessy--kubectl-kinds-namespaced-set ()
-  (let ((buf (knessy--utils-make-buffer (generate-new-buffer-name (knessy--utils-kubectl-buffer-name "kinds-namespaced" nil t t)))))
+(defun knessy--kubectl-resource-types-namespaced-set ()
+  (let ((buf (knessy--utils-make-buffer (generate-new-buffer-name (knessy--utils-kubectl-buffer-name "resource-types-namespaced" nil t t)))))
     (knessy--shell-exec
      "kubectl api-resources --output name --namespaced=true"
      buf)
     (knessy--utils-set
      (knessy--utils-read-buffer buf))))
 
-(defun knessy--kubectl-kinds-global-set ()
-  (let ((buf (knessy--utils-make-buffer (generate-new-buffer-name (knessy--utils-kubectl-buffer-name "kinds-global" nil t t)))))
+(defun knessy--kubectl-resource-types-global-set ()
+  (let ((buf (knessy--utils-make-buffer (generate-new-buffer-name (knessy--utils-kubectl-buffer-name "resource-types-global" nil t t)))))
     (knessy--shell-exec
      "kubectl api-resources --output name --namespaced=false"
      buf)
@@ -124,26 +124,26 @@
 ;;   - actual command
 ;;   - parsing (either straight to list, or hashset, or something)
 
-(defun knessy--kinds ()
+(defun knessy--resource-types ()
   (knessy--cache-get
    knessy--cache
-   (list :kinds knessy--context)
+   (list :resource-types knessy--context)
    (lambda ()
-     (knessy--kubectl-kinds-list))))
+     (knessy--kubectl-resource-types-list))))
 
-(defun knessy--kinds-namespaced ()
+(defun knessy--resource-types-namespaced ()
   (knessy--cache-get
    knessy--cache
-   (list :kinds-namespaced knessy--context)
+   (list :resource-types-namespaced knessy--context)
    (lambda ()
-     (knessy--kubectl-kinds-namespaced-set))))
+     (knessy--kubectl-resource-types-namespaced-set))))
 
-(defun knessy--kinds-global ()
+(defun knessy--resource-types-global ()
   (knessy--cache-get
    knessy--cache
-   (list :kinds-global knessy--context)
+   (list :resource-types-global knessy--context)
    (lambda ()
-     (knessy--kubectl-kinds-global-set))))
+     (knessy--kubectl-resource-types-global-set))))
 
 (defun knessy-cache-clear ()
   "Resets all the Knessy caches."
@@ -176,28 +176,28 @@
           (list :namespaces ctx)
           (cons knessy-all-namespaces-string (knessy--utils-read-buffer buf))))))))
 
-(defun knessy--cache-kinds-populate-async ()
+(defun knessy--cache-resource-types-populate-async ()
   ;; TODO: this is a nightmare
 
   (dolist (ctx (knessy--contexts))
     (let ((buf (knessy--utils-make-buffer
                 (generate-new-buffer-name
-                 (knessy--utils-kubectl-buffer-name "kinds-cache" nil t t))))
+                 (knessy--utils-kubectl-buffer-name "resource-types-cache" nil t t))))
           (buferr (knessy--utils-make-buffer
                    (generate-new-buffer-name
-                    (knessy--utils-kubectl-buffer-name "kinds-cache" nil t t t))))
+                    (knessy--utils-kubectl-buffer-name "resource-types-cache" nil t t t))))
           (buf-namespaced (knessy--utils-make-buffer
                            (generate-new-buffer-name
-                            (knessy--utils-kubectl-buffer-name "kinds-namespaced-cache" nil t t))))
+                            (knessy--utils-kubectl-buffer-name "resource-types-namespaced-cache" nil t t))))
           (buferr-namespaced (knessy--utils-make-buffer
                               (generate-new-buffer-name
-                               (knessy--utils-kubectl-buffer-name "kinds-namespaced-cache" nil t t t))))
+                               (knessy--utils-kubectl-buffer-name "resource-types-namespaced-cache" nil t t t))))
           (buf-global (knessy--utils-make-buffer
                        (generate-new-buffer-name
-                        (knessy--utils-kubectl-buffer-name "kinds-global-cache" nil t t))))
+                        (knessy--utils-kubectl-buffer-name "resource-types-global-cache" nil t t))))
           (buferr-global (knessy--utils-make-buffer
                           (generate-new-buffer-name
-                           (knessy--utils-kubectl-buffer-name "kinds-global-cache" nil t t t)))))
+                           (knessy--utils-kubectl-buffer-name "resource-types-global-cache" nil t t t)))))
       ;; TODO: the actual command should not live here
       (knessy--shell-exec-async2
        (concat
@@ -209,7 +209,7 @@
        (lambda ()
          (knessy--cache-set
           knessy--cache
-          (list :kinds ctx)
+          (list :resource-types ctx)
           (knessy--utils-read-buffer buf))))
 
       ;; TODO: the actual command should not live here
@@ -223,7 +223,7 @@
        (lambda ()
          (knessy--cache-set
           knessy--cache
-          (list :kinds-namespaced ctx)
+          (list :resource-types-namespaced ctx)
           (knessy--utils-set
            (knessy--utils-read-buffer buf-namespaced)))))
       ;; TODO: the actual command should not live here
@@ -238,7 +238,7 @@
        (lambda ()
          (knessy--cache-set
           knessy--cache
-          (list :kinds-global ctx)
+          (list :resource-types-global ctx)
           (knessy--utils-set
            (knessy--utils-read-buffer buf-global))))))))
 
@@ -256,14 +256,14 @@
         '(:ctx)
         (knessy--utils-read-buffer buf))
        (knessy--cache-namespaces-populate-async)
-       (knessy--cache-kinds-populate-async)))))
+       (knessy--cache-resource-types-populate-async)))))
 
 ;; FIXME: any async functions should not be dependent on buffer-local variables because the user may
 ;;   change the current buffer while the function is running :D
 ;;   or at least capture those early enough.
 ;;   or pass those explicitly at the call time.
 
-(defun knessy--cache-labels-populate-async (ctx ns kind)
+(defun knessy--cache-labels-populate-async (ctx ns resource-type)
   (let ((buf (knessy--utils-make-buffer
               (generate-new-buffer-name
                (knessy--utils-kubectl-buffer-name "labels-cache"))))
@@ -277,14 +277,14 @@
      buf
      buferr
      (lambda ()
-       (knessy--log 4 (format "knessy--cache-labels-populate-async: ctx: %s ns: %s kind: %s" ctx ns kind))
+       (knessy--log 4 (format "knessy--cache-labels-populate-async: ctx: %s ns: %s resource-type: %s" ctx ns resource-type))
        (knessy--cache-set
         knessy--cache
         ;; TODO: maybe (knessy--namespace-all?) should take no arguments
         (if (or (knessy--namespace-all? ns)  ;; FIXME: knessy--namespace is "default" here? because buffer-local?
-                (knessy--kind-global? kind))
-            (list :labels knessy--context knessy--kind)
-          (list :labels knessy--context knessy--namespace knessy--kind))
+                (knessy--resource-type-global? resource-type))
+            (list :labels knessy--context knessy--resource-type)
+          (list :labels knessy--context knessy--namespace knessy--resource-type))
         (apply
          #'knessy--utils-ht-merge-duplicates-to-sets
          (mapcar
@@ -299,21 +299,21 @@
 (comment
  (let ((knessy--context "vam-ttd-p-01")
        (knessy--namespace "spark-dataproc-prod")
-       (knessy--kind "pods"))
+       (knessy--resource-type "pods"))
    (knessy--cache-labels-populate-async))
 
  (let ((knessy--context "vam-ttd-p-01")
        (knessy--namespace "monitoring")
-       (knessy--kind "pods")
+       (knessy--resource-type "pods")
        (buf (get-buffer "*knessy-vam-ttd-p-01-monitoring-pods-labels-cache*<40>")))
    (lambda ()
        (knessy--cache-set
         knessy--cache
         ;; TODO: maybe (knessy--namespace-all?) should take no arguments
         (if (or (knessy--namespace-all? knessy--namespace)
-                (knessy--kind-global?))
-            (list :labels knessy--context knessy--kind)
-          (list :labels knessy--context knessy--namespace knessy--kind))
+                (knessy--resource-type-global?))
+            (list :labels knessy--context knessy--resource-type)
+          (list :labels knessy--context knessy--namespace knessy--resource-type))
         (apply
          #'knessy--utils-ht-merge-duplicates-to-sets
          (mapcar
@@ -343,7 +343,7 @@
  (ht-get knessy--cache-namespaces "wa1-aks-p-01")
 
  (-> knessy--cache
-     (ht-get :kinds-global)
+     (ht-get :resource-types-global)
      (ht-keys)))
 
 

@@ -30,7 +30,6 @@
       ("MEMLIM" `((:reduce-fn . ,(knessy--make-convert-and-add-reduce-fn #'knessy--convert-size-units-bytes))
                   (:mixin-fn . ,(lambda (v) (when (s-blank? v) (cons "MEMLIMNOTSET" t)))))))))
 
-
 (cl-defun knessy--parse-table-kubectl-output
     (buf &optional headers (pre-process-ht (ht)) (post-process-ht (ht)) post-process-fn)
   "Parses buffer BUF of information that was output by a kubectl command,
@@ -61,120 +60,122 @@ Every column specified will be modified by applying func to its value.
 Specify empty hashtable if no post-processing is desired.
 "
   (knessy--log 4 (format "Started parsing buffer %s" (buffer-name buf)))
-  (let ((header-static)
-        (header-repeated)
-        (items-ht (ht))
-        (widths-ht (ht))
-        ;; TODO: this looks kinda ugly, maybe just pass it in a fat "context" variable?
-        (knessy--context-orig knessy--context)
-        (knessy--namespace-orig knessy--namespace)
-        (knessy--kind-orig knessy--kind)
-        (knessy--namespace-current-all?-orig knessy--namespace-current-all?))
-    (with-current-buffer buf
-      (setq knessy--context knessy--context-orig)
-      (setq knessy--namespace knessy--namespace-orig)
-      (setq knessy--kind knessy--kind-orig)
-      ;; TODO: maybe just call a function there
-      (setq knessy--namespace-current-all? knessy--namespace-current-all?-orig)
-      (goto-char (point-min))
+  (if (zerop (buffer-size buf))
+      nil
+    (let ((header-static)
+          (header-repeated)
+          (items-ht (ht))
+          (widths-ht (ht))
+          ;; TODO: this looks kinda ugly, maybe just pass it in a fat "context" variable?
+          (knessy--context-orig knessy--context)
+          (knessy--namespace-orig knessy--namespace)
+          (knessy--resource-type-orig knessy--resource-type)
+          (knessy--namespace-current-all?-orig knessy--namespace-current-all?))
+      (with-current-buffer buf
+        (setq knessy--context knessy--context-orig)
+        (setq knessy--namespace knessy--namespace-orig)
+        (setq knessy--resource-type knessy--resource-type-orig)
+        ;; TODO: maybe just call a function there
+        (setq knessy--namespace-current-all? knessy--namespace-current-all?-orig)
+        (goto-char (point-min))
 
-      (if (not headers)
-          ;; if we have to parse headers ourselves
-          (progn
-            ;; TODO: this is super-brittle
-            (setq header-static (s-split (rx (>= 2 whitespace))
+        (if (not headers)
+            ;; if we have to parse headers ourselves
+            (progn
+              ;; TODO: this is super-brittle
+              (setq header-static (s-split (rx (>= 2 whitespace))
+                                           (s-trim (thing-at-point 'line t))))
+              (forward-line 1))
+          (setq header-static (asoc-get headers :static))
+          (setq header-repeated (asoc-get headers :repeated)))
+
+        (while (not (eobp))
+          (knessy--log 5 (format "Working on line: %s" (thing-at-point 'line t)))
+          (let* ((values (s-split (rx (or (>= 2 whitespace) "|"))
                                   (s-trim (thing-at-point 'line t))))
-            (forward-line 1))
-        (setq header-static (asoc-get headers :static))
-        (setq header-repeated (asoc-get headers :repeated)))
+                 (item (ht))
+                 (name)
+                 ;; TODO: here should be the check if resource-type is namespaced or not
+                 (resource-type knessy--resource-type)
+                 (namespace (if (ht-get (knessy--cache-get knessy--cache (list :resource-types-namespaced knessy--context)
+                                                           (lambda ()
+                                                             (knessy--utils-set
+                                                              (knessy--utils-read-buffer buf-global))))
+                                        resource-type
+                                        nil)
+                                knessy--namespace
+                              nil))
 
-      (while (not (eobp))
-        (knessy--log 5 (format "Working on line: %s" (thing-at-point 'line t)))
-        (let* ((values (s-split (rx (or (>= 2 whitespace) "|"))
-                                (s-trim (thing-at-point 'line t))))
-               (item (ht))
-               (name)
-               ;; TODO: here should be the check if kind is namespaced or not
-               (kind knessy--kind)
-               (namespace (if (ht-get (knessy--cache-get knessy--cache (list :kinds-namespaced knessy--context)
-                                                         (lambda ()
-                                                           (knessy--utils-set
-                                                            (knessy--utils-read-buffer buf-global))))
-                                      kind
-                                      nil)
-                              knessy--namespace
-                            nil))
+                 (accumulators (ht))
+                 (mixins (ht)))
+            (dolist (pair (-zip-pair (-concat header-static
+                                              (-cycle header-repeated))
+                                     values))
+              (let* ((key (car pair))
+                     (value (cdr pair))
+                     (pre-process-asoc (ht-get pre-process-ht key nil))
+                     (pre-process-reduce-fn (asoc-get pre-process-asoc :reduce-fn nil))
+                     (pre-process-reduce-acc (asoc-get pre-process-asoc :reduce-acc 0))
+                     (pre-process-mixin-fn (asoc-get pre-process-asoc :mixin-fn nil)))
+                ;; if mixin is enabled, call the fn and put the result into a separate hashtable
+                (if pre-process-mixin-fn
+                    (let* ((mixin (funcall pre-process-mixin-fn value)))
+                      (if mixin
+                          (let ((mixin-key (car mixin))
+                                (mixin-value (cdr mixin)))
+                            (ht-set mixins mixin-key mixin-value)))))
 
-               (accumulators (ht))
-               (mixins (ht)))
-          (dolist (pair (-zip-pair (-concat header-static
-                                            (-cycle header-repeated))
-                                   values))
-            (let* ((key (car pair))
-                   (value (cdr pair))
-                   (pre-process-asoc (ht-get pre-process-ht key nil))
-                   (pre-process-reduce-fn (asoc-get pre-process-asoc :reduce-fn nil))
-                   (pre-process-reduce-acc (asoc-get pre-process-asoc :reduce-acc 0))
-                   (pre-process-mixin-fn (asoc-get pre-process-asoc :mixin-fn nil)))
-              ;; if mixin is enabled, call the fn and put the result into a separate hashtable
-              (if pre-process-mixin-fn
-                  (let* ((mixin (funcall pre-process-mixin-fn value)))
-                    (if mixin
-                        (let ((mixin-key (car mixin))
-                              (mixin-value (cdr mixin)))
-                          (ht-set mixins mixin-key mixin-value)))))
+                ;; if pre-processing is enabled for the key, don't put it in the result yet
+                (if pre-process-reduce-fn
+                    (let* ((acc (ht-get accumulators key pre-process-reduce-acc))
+                           (new-acc (funcall pre-process-reduce-fn acc value)))
+                      (ht-set accumulators key new-acc))
+                  ;; if key is "simple", put as is
+                  ;; probably only add it if it's not name/namespace
+                  (ht-set item key value)
+                  ;; TODO: redefine resource-type here when we support the *ALL* resource-types queries
+                  ;; TODO: this effectively means we can't pre-process NAME, NAMESPACE or KIND
+                  (cond ((s-equals? key "NAME")
+                         (setq name value))
+                        ;; TODO: if namespace is missing from the output, must grab "current" one
+                        ;; but only if it's a namespaced resource
+                        ((s-equals? key "NAMESPACE")
+                         (setq namespace value))))))
 
-              ;; if pre-processing is enabled for the key, don't put it in the result yet
-              (if pre-process-reduce-fn
-                  (let* ((acc (ht-get accumulators key pre-process-reduce-acc))
-                         (new-acc (funcall pre-process-reduce-fn acc value)))
-                    (ht-set accumulators key new-acc))
-                ;; if key is "simple", put as is
-                ;; probably only add it if it's not name/namespace
-                (ht-set item key value)
-                ;; TODO: redefine kind here when we support the *ALL* kinds queries
-                ;; TODO: this effectively means we can't pre-process NAME, NAMESPACE or KIND
-                (cond ((s-equals? key "NAME")
-                       (setq name value))
-                      ;; TODO: if namespace is missing from the output, must grab "current" one
-                      ;; but only if it's a namespaced resource
-                      ((s-equals? key "NAMESPACE")
-                       (setq namespace value))))))
-
-          ;; then add all the accumulated goodies
-          (dolist (kv (ht-items accumulators))
-            (ht-set item (car kv) (cadr kv)))
-          ;; and the mixins!
-          (dolist (kv (ht-items mixins))
-            (ht-set item (car kv) (cadr kv)))
-          ;; post-process columns
-          (dolist (kv (ht-items post-process-ht))
-            (let ((k (car kv))
-                  (fn (cadr kv)))
-              (ht-update-with! item k fn)))
-          ;; post-process item
-          (when post-process-fn
-            (funcall post-process-fn item))
-          ;; update widths for strings
-          ;; FIXME: if it's needed, it can be returned; + result :headers :widths HASHTABLE
-          ;; (dolist (kv (ht-items item))
-          ;;   (let ((k (car kv))
-          ;;         (v (cadr kv)))
-          ;;     (when (stringp v)
-          ;;       (knessy--update-columns-max-width widths-ht k v))))
-          ;; finally add it to the resulting hashtable
-          (ht-set items-ht (cons namespace (cons kind name)) item))
-        (forward-line 1)))
-    (let ((result `((:items . ,items-ht)
-                    (:headers . ((:static . ,header-static)
-                                 (:repeated . ,header-repeated))))))
-      ;; TODO: come up with debug toggles to turn this off and on again
-      ;; (message "Parsed results:")
-      ;; (princ result)
-      (knessy--log 4 (format "Finished parsing %s" (buffer-name buf)))
-      (knessy--log 5 "Returning parsed results:")
-      (knessy--log 5 result)
-      result)))
+            ;; then add all the accumulated goodies
+            (dolist (kv (ht-items accumulators))
+              (ht-set item (car kv) (cadr kv)))
+            ;; and the mixins!
+            (dolist (kv (ht-items mixins))
+              (ht-set item (car kv) (cadr kv)))
+            ;; post-process columns
+            (dolist (kv (ht-items post-process-ht))
+              (let ((k (car kv))
+                    (fn (cadr kv)))
+                (ht-update-with! item k fn)))
+            ;; post-process item
+            (when post-process-fn
+              (funcall post-process-fn item))
+            ;; update widths for strings
+            ;; FIXME: if it's needed, it can be returned; + result :headers :widths HASHTABLE
+            ;; (dolist (kv (ht-items item))
+            ;;   (let ((k (car kv))
+            ;;         (v (cadr kv)))
+            ;;     (when (stringp v)
+            ;;       (knessy--update-columns-max-width widths-ht k v))))
+            ;; finally add it to the resulting hashtable
+            (ht-set items-ht (cons namespace (cons resource-type name)) item))
+          (forward-line 1)))
+      (let ((result `((:items . ,items-ht)
+                      (:headers . ((:static . ,header-static)
+                                   (:repeated . ,header-repeated))))))
+        ;; TODO: come up with debug toggles to turn this off and on again
+        ;; (message "Parsed results:")
+        ;; (princ result)
+        (knessy--log 4 (format "Finished parsing %s" (buffer-name buf)))
+        (knessy--log 5 "Returning parsed results:")
+        (knessy--log 5 result)
+        result))))
 
 
 (comment
@@ -281,11 +282,11 @@ Specify empty hashtable if no post-processing is desired.
 
 ;; TODO: most likely this will be called in the target buffer already
 (defun knessy--make-tablist (columns rename items widths)
-
   (setq tabulated-list-format (knessy--make-tablist-format columns widths))
   (setq tabulated-list-entries (knessy--make-tablist-entries columns rename items))
   (tabulated-list-init-header)
   (unless knessy--table-remember-pos
+    ;; FIXME: if already sorted by NAME, this changes sorting direction
     (tabulated-list-sort (-elem-index "NAME" columns)))
   (tabulated-list-print knessy--table-remember-pos)
   (setq knessy--table-remember-pos t))
