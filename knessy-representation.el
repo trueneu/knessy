@@ -172,7 +172,8 @@ Specify empty hashtable if no post-processing is desired.
       ;; (message "Parsed results:")
       ;; (princ result)
       (knessy--log 4 (format "Finished parsing %s" (buffer-name buf)))
-
+      (knessy--log 5 "Returning parsed results:")
+      (knessy--log 5 result)
       result)))
 
 

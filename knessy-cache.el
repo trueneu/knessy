@@ -33,8 +33,8 @@
             (ht-set target-table :data new-data)
             (ht-set target-table :refresh-at (time-add now ttl))
             new-data))
-      (knessy--log 2 (format "Accessing cached data for path:"))
-      (knessy--log 2 keys)
+      (knessy--log 4 (format "Accessing cached data for path:"))
+      (knessy--log 4 keys)
       data)))
 
 (provide 'knessy-cache)

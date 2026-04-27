@@ -1,18 +1,35 @@
 ;; -*- lexical-binding: t; -*-
 ;; requires dash, s.el, asoc.el, el-job (???), aio (???)
 
+(defvar knessy-shell-always-kill-error-buffers nil
+  "If t, errored-out buffers are always killed, if nil only when there's no errors.")
+(defvar knessy-shell-kill-success-buffers t
+  "If t, buffers with command output are killed")
+
 (defun knessy--default-sentinel (proc ev)
   (message (format "Received event from process %s: %s"
                    (process-name proc) ev)))
 
-(defun knessy--make-callback-sentinel (f)
+(defun knessy--make-callback-sentinel (f buf buferr)
   (lambda (proc ev)
     (cond ((s-equals? ev "finished\n")
-           (funcall f))
-          (t (message (format "Received event from process %s, command \"%s\": %s"
-                              (process-name proc)
-                              (process-command proc)
-                              ev))))))
+           (prog1
+             (funcall f)
+             (kill-buffer buferr)))
+          (t
+           (let ((msg (if knessy-shell-always-kill-error-buffers
+                          (progn
+                            (kill-buffer buferr)
+                            (format "Received event from process %s, command \"%s\": %s"
+                                    (process-name proc)
+                                    (process-command proc)
+                                    ev))
+                        (format "Received event from process %s, command \"%s\": %s; see buffer \"%s\" for details"
+                            (process-name proc)
+                            (process-command proc)
+                            ev
+                            (buffer-name buferr)))))
+               (message msg))))))
 
 (defun knessy--make-process-filter-to-buffer (buf)
   (lambda (proc string)
@@ -32,19 +49,24 @@
                      :stderr buferr
                      ;; TODO: remove this leave default?
                      :filter (knessy--make-process-filter-to-buffer buf)
-                     :sentinel (knessy--make-callback-sentinel callback)))))))
+                     :sentinel (knessy--make-callback-sentinel callback buf buferr)))))))
 
 (comment
  (knessy--shell-exec-async2
   "kubectl get pods -n kube-system"
   (get-buffer-create "bar")
   (get-buffer-create "baz")
+  (lambda () (message "I'm done")))
+ (knessy--shell-exec-async2
+  "kubectl --context vaf-ttd-kpop-01 api-resources --namespaced=false --output name"
+  (get-buffer-create "bar")
+  (get-buffer-create "baz")
   (lambda () (message "I'm done"))))
 
-(defun knessy--shell-exec-async (cmd buf callback)
-  (let* ((process (start-process-shell-command "knessy-shell-exec" nil cmd)))
-    (set-process-filter process (knessy--make-process-filter-to-buffer buf))
-    (set-process-sentinel process (knessy--make-callback-sentinel callback))))
+;; (defun knessy--shell-exec-async (cmd buf callback)
+;;   (let* ((process (start-process-shell-command "knessy-shell-exec" nil cmd)))
+;;     (set-process-filter process (knessy--make-process-filter-to-buffer buf))
+;;     (set-process-sentinel process (knessy--make-callback-sentinel callback))))
 
 ;; FIXME: this gets shell-command's output?.. how?..
 (defun knessy--error-buf ()
@@ -52,7 +74,8 @@
 
 (defun knessy--shell-exec (cmd buf)
   (with-environment-variables (("KUBECONFIG" knessy-kubeconfig))
-    (shell-command cmd buf (knessy--error-buf))))
+    (save-current-buffer
+      (shell-command cmd buf (knessy--error-buf)))))
 
 ;; TODO: look into (with-temp-buffer) macro instead of using named buffers
 ;; to check this, refresh tablist _quickly_ with <g> <g> for example -- it attempts to kill a buffer with process still attached

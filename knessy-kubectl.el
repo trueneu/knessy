@@ -263,7 +263,7 @@
 ;;   or at least capture those early enough.
 ;;   or pass those explicitly at the call time.
 
-(defun knessy--cache-labels-populate-async ()
+(defun knessy--cache-labels-populate-async (ctx ns kind)
   (let ((buf (knessy--utils-make-buffer
               (generate-new-buffer-name
                (knessy--utils-kubectl-buffer-name "labels-cache"))))
@@ -277,13 +277,12 @@
      buf
      buferr
      (lambda ()
-       (message (format "ctx: %s ns: %s kind: %s" knessy--context knessy--namespace knessy--kind))
-       (message (format "current-buf: %s" (buffer-name)))
+       (knessy--log 4 (format "knessy--cache-labels-populate-async: ctx: %s ns: %s kind: %s" ctx ns kind))
        (knessy--cache-set
         knessy--cache
         ;; TODO: maybe (knessy--namespace-all?) should take no arguments
-        (if (or (knessy--namespace-all? knessy--namespace)  ;; FIXME: knessy--namespace is "default" here? because buffer-local?
-                (knessy--kind-global?))
+        (if (or (knessy--namespace-all? ns)  ;; FIXME: knessy--namespace is "default" here? because buffer-local?
+                (knessy--kind-global? kind))
             (list :labels knessy--context knessy--kind)
           (list :labels knessy--context knessy--namespace knessy--kind))
         (apply
@@ -291,7 +290,9 @@
          (mapcar
           (lambda (s) (json-parse-string s))
           (knessy--utils-read-buffer buf t)))
-        knessy-label-cache-ttl)))))
+        knessy-label-cache-ttl)
+       (knessy--kill-success-buffer-maybe buf)))))
+
 
 ;; FIXME: sync label cache renewal steals focus to the buffer with results, same as with main display functions.
 ;; TODO: cache doesn't work at all for labels?
