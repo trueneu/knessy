@@ -52,7 +52,7 @@
 
 (defun knessy--shell-exec (cmd buf)
   (with-environment-variables (("KUBECONFIG" knessy-kubeconfig))
-    (call-process-shell-command cmd nil buf nil)))
+    (shell-command cmd buf (knessy--error-buf))))
 
 ;; TODO: look into (with-temp-buffer) macro instead of using named buffers
 ;; to check this, refresh tablist _quickly_ with <g> <g> for example -- it attempts to kill a buffer with process still attached

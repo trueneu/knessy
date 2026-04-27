@@ -472,51 +472,70 @@ Made so spamming refreshes doesn't result in 100 of kubectl calls.")
 
 
 (defun knessy--display2-common-part (display-buf view results post-process-fn)
+  (knessy--log 5 "Current buffer name: ")
+  (knessy--log 5 (buffer-name))
   (knessy--log 4 "Got calls results!")
-  (with-current-buffer display-buf
-    (let* ((columns (asoc-get view :columns nil))
-           ;; mix-in NAMESPACE column in front of NAME if current namespace is *ALL*
-           ;; if the columns is nil, leave it as is -- NAMESPACE should be present in the kubectl output anyways
-           (columns (if (and knessy--namespace-current-all? columns)
-                        (knessy--utils-insert-into-list
-                         columns "NAMESPACE" (-elem-index "NAME" columns))
-                      columns))
-           (column-rename (asoc-get view :column-rename (ht)))
-           (widths (ht-merge knessy-column-widths (asoc-get view :widths (ht))))
+  (let* ((columns (asoc-get view :columns nil))
+         ;; mix-in NAMESPACE column in front of NAME if current namespace is *ALL*
+         ;; if the columns is nil, leave it as is -- NAMESPACE should be present in the kubectl output anyways
+         (columns (if (and knessy--namespace-current-all? columns)
+                      (knessy--utils-insert-into-list
+                       columns "NAMESPACE" (-elem-index "NAME" columns))
+                    columns))
+         (column-rename (asoc-get view :column-rename (ht)))
+         (widths (ht-merge knessy-column-widths (asoc-get view :widths (ht))))
 
-           (items-calls (mapcar (lambda (x) (asoc-get x :items))
-                                results)))
-      ;; TODO: knessy mode should be "remembering" widths if adjusted by hand
-      ;; TODO: this loop isn't really needed is it?
-      ;; setup columns
-      (dolist (result results)
-        ;; if the view misses columns, most likely it's a default view (so display whatever we got with default call)
-        (unless columns
-          (setq columns (-> result (asoc-get :headers) (asoc-get :static)))))
-      ;; FIXME: this should gather max widths from parsing first, but then merge with configured widths as lowest priority
+         (items-calls (mapcar (lambda (x) (asoc-get x :items))
+                              results)))
+    ;; TODO: knessy mode should be "remembering" widths if adjusted by hand
+    ;; (princ "widths:")
+    ;; (princ widths)
+    ;; TODO: this loop isn't really needed is it?
+    ;; setup columns
+    (knessy--log 5 "Current buffer name: ")
+    (knessy--log 5 (buffer-name))
+    (dolist (result results)
+      ;; (princ "RESULT: \n")
+      ;; (princ result)
+      ;; (princ "\n")
+      ;; if the view misses columns, most likely it's a default view (so display whatever we got with default call)
+      (unless columns
+        (setq columns (-> result (asoc-get :headers) (asoc-get :static)))))
+    ;; FIXME: this should gather max widths from parsing first, but then merge with configured widths as lowest priority
+    ;; (dolist (item (ht-items (-> result (asoc-get :headers) (asoc-get :widths))))
+    ;;   (let ((column (car item))
+    ;;         (width (cadr item)))
+    ;;     (ht-set widths column (max (ht-get widths column 0)
+    ;;                                width)))))
 
-      ;; post-process all the items
-      ;; TODO: strictly speaking, widths have to be calculated _after_ this -- new columns may appear here!
-      ;; TODO: get rid of widths calculation in parsing stage?
-      ;; TODO: actually maybe set widths explicitly to avoid reading every single column again?
-      (knessy--log 4 "Merging items from multiple calls...")
-      (let ((merged-items (apply #'knessy--merge-items items-calls)))
-        (when post-process-fn
-          (mapc
-           (lambda (k)
-             (funcall post-process-fn (ht-get merged-items k)))
-           (ht-keys merged-items)))
-        ;; set the rendering basis datastructure
-        (setq knessy--data
-              `((:headers . ((:static . ,columns)
-                             (:widths . ,widths)
-                             (:rename . ,column-rename)))
-                (:items . ,merged-items))))
-      (knessy--log 5 "Resulting knessy data: ")
-      (knessy--log 5 knessy--data)
-      ;; paint!
-      (knessy--repaint)
-      (setq knessy--refresh-in-progress nil))))
+    ;; post-process all the items
+    ;; TODO: strictly speaking, widths have to be calculated _after_ this -- new columns may appear here!
+    ;; TODO: get rid of widths calculation in parsing stage?
+    ;; TODO: actually maybe set widths explicitly to avoid reading every single column again?
+    (knessy--log 4 "Merging items from multiple calls...")
+    (let ((merged-items (apply #'knessy--merge-items items-calls)))
+      (when post-process-fn
+        (mapc
+         (lambda (k)
+           (funcall post-process-fn (ht-get merged-items k)))
+         (ht-keys merged-items)))
+      ;; set the rendering basis datastructure
+      (setq knessy--data
+            `((:headers . ((:static . ,columns)
+                           (:widths . ,widths)
+                           (:rename . ,column-rename)))
+              (:items . ,merged-items))))
+    (knessy--log 5 "Resulting knessy data: ")
+    (knessy--log 5 knessy--data)
+    ;; paint!
+    (knessy--repaint display-buf)
+    (knessy--log 5 "Current buffer name: ")
+    (knessy--log 5 (buffer-name))
+     ;; dumb fix
+     ;; (display-buffer display-buf)
+    (setq knessy--refresh-in-progress nil))
+  ;; TODO: this should not be needed
+  (display-buffer display-buf))
 
 ;; TODO: fix bug with sync display function that it chooses another display to show at the end (see display-buffer hack/fix)
 ;; TODO: add appending NAMESPACE column before NAME if it's missing + not all-namespaces // verify?

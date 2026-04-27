@@ -262,8 +262,6 @@
 ;;   change the current buffer while the function is running :D
 ;;   or at least capture those early enough.
 ;;   or pass those explicitly at the call time.
-;;   or use with-current-buffer
-
 
 (defun knessy--cache-labels-populate-async ()
   (let ((buf (knessy--utils-make-buffer
