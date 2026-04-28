@@ -230,10 +230,13 @@ Specify empty hashtable if no post-processing is desired.
         (prog1
           (list column
                 (ht-get widths column knessy-default-column-width)
+                ;; FIXME: we should just make this a hash table
                 (cond ((s-equals? "RESTARTS" column)
                        (knessy--comparator-make-time column-counter))
                       ((s-equals? "AGE" column)
                        (knessy--comparator-make-time column-counter))
+                      ((s-equals? "RDY" column)
+                       (knessy--comparator-make-ready column-counter))
                       ((s-equals? "RDY" column)
                        (knessy--comparator-make-ready column-counter))
                       ((s-equals? "CPU(r)" column)
@@ -253,11 +256,58 @@ Specify empty hashtable if no post-processing is desired.
   (if (ht-get knessy--marked id nil)
       ;; TODO: face should be customizable
       (progn
-        ;; (princ "Marking: ")
-        ;; (princ id)
-        ;; (princ "\n")
         (propertize name 'face 'dired-marked))
     name))
+
+(defface knessy-status-running
+  '((default . (:inherit success)))
+  "Running face")
+
+(defface knessy-status-pending
+  '((default . (:inherit warning)))
+  "Pending face")
+
+(defface knessy-status-terminating
+  '((default . (:inherit error)))
+  "Terminating face")
+
+(defface knessy-status-failed
+  '((default . (:inherit error)))
+  "Failed face")
+
+(defface knessy-ready-all
+  '((default . (:inherit default)))
+  "All ready face")
+
+(defface knessy-ready-not-all
+  '((default . (:inherit error)))
+  "Not all ready face")
+
+(defvar knessy-faces
+  (ht ("Running" 'knessy-status-running)
+      ("Pending" 'knessy-status-pending)
+      ("Terminating" 'knessy-status-terminating)
+      ("Failed" 'knessy-status-failed)))
+
+(defun knessy--propertize-status (status)
+  (if-let ((face (ht-get knessy-faces status nil)))
+      (propertize status 'face face)
+    status))
+
+(defun knessy--propertize-ready (ready)
+  (let* ((x/y (knessy--extract-x-slash-y ready))
+         (rdy (string-to-number (car x/y)))
+         (total (string-to-number (cdr x/y))))
+    (if (< rdy total)
+        (s-concat
+         (propertize (car x/y) 'face 'knessy-ready-not-all)
+         "/" (cdr x/y))
+      (s-concat
+         (propertize (car x/y) 'face 'knessy-ready-all)
+         "/" (cdr x/y)))))
+
+(comment
+ (knessy--propertize-status "Running"))
 
 (defun knessy--make-tablist-entries (columns rename items)
   (knessy--log 3 "In knessy--make-tablist-entries")
@@ -276,6 +326,12 @@ Specify empty hashtable if no post-processing is desired.
               (cond
                ((s-equals? "NAME" column)
                 (knessy--propertize-name id value))
+               ((s-equals? "STATUS" column)
+                (knessy--propertize-status value))
+               ((s-equals? "RDY" column)
+                (knessy--propertize-ready value))
+               ((s-equals? "READY" column)
+                (knessy--propertize-ready value))
                (t value))))
           columns)))))
    (ht-items items)))
@@ -287,7 +343,9 @@ Specify empty hashtable if no post-processing is desired.
   (tabulated-list-init-header)
   (unless knessy--table-remember-pos
     ;; FIXME: if already sorted by NAME, this changes sorting direction
-    (tabulated-list-sort (-elem-index "NAME" columns)))
+    (setq tabulated-list-sort-key nil))
+    ;; (let ((current-prefix-arg -1))
+    ;;   (tabulated-list-sort)))
   (tabulated-list-print knessy--table-remember-pos)
   (setq knessy--table-remember-pos t))
 
