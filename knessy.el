@@ -480,10 +480,9 @@ Made so spamming refreshes doesn't result in 100 of kubectl calls.")
 ;; FIXME: I don't understand why this function is needed, but (commandp 'knessy--display2-aio) is nil?..
 (defun knessy--display2 (&optional sync)
   (interactive "P")
-  (save-window-excursion
-    (if sync
+  (if sync
         (knessy--display2-sync)
-      (knessy--display2-aio))))
+      (knessy--display2-aio)))
 
 (comment
  (commandp 'knessy--display2-aio)
