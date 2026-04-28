@@ -97,12 +97,7 @@ Specify empty hashtable if no post-processing is desired.
                  (name)
                  ;; TODO: here should be the check if resource-type is namespaced or not
                  (resource-type knessy--resource-type)
-                 (namespace (if (ht-get (knessy--cache-get knessy--cache (list :resource-types-namespaced knessy--context)
-                                                           (lambda ()
-                                                             (knessy--utils-set
-                                                              (knessy--utils-read-buffer buf-global))))
-                                        resource-type
-                                        nil)
+                 (namespace (if (knessy--resource-type-namespaced? resource-type)
                                 knessy--namespace
                               nil))
 

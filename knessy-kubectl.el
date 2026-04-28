@@ -242,6 +242,25 @@
           (knessy--utils-set
            (knessy--utils-read-buffer buf-global))))))))
 
+(comment
+ (let ((ctx "k8s-local")
+       (buf-namespaced (get-buffer-create "knessy-debug"))
+       (buferr-namespaced (get-buffer-create "knessy-debug-err")))
+   (knessy--shell-exec-async2
+    (concat
+     "kubectl --context "
+     ctx
+     " api-resources --namespaced=true --output name")
+    buf-namespaced
+    buferr-namespaced
+    (lambda ()
+      (knessy--cache-set
+       knessy--cache
+       (list :resource-types-namespaced ctx)
+       (knessy--utils-set
+        (knessy--utils-read-buffer buf-namespaced)))))))
+
+
 (defun knessy--caches-populate-async ()
   (let ((buf (knessy--utils-make-buffer (generate-new-buffer-name (knessy--utils-kubectl-buffer-name "context-cache" t t t))))
         (buferr (knessy--utils-make-buffer (generate-new-buffer-name (knessy--utils-kubectl-buffer-name "context-cache" t t t t)))))
@@ -264,6 +283,7 @@
 ;;   or pass those explicitly at the call time.
 
 (defun knessy--cache-labels-populate-async (ctx ns resource-type)
+  (knessy--log 3 "In knessy--cache-labels-populate-async")
   (let ((buf (knessy--utils-make-buffer
               (generate-new-buffer-name
                (knessy--utils-kubectl-buffer-name "labels-cache"))))

@@ -82,6 +82,17 @@ time of the last restart, or the amount of restarts."
   (interactive)
   (setq knessy--refresh-in-progress nil))
 
+(defun knessy-env-go-back ()
+  (interactive)
+  ;; toss the current active one
+  (let ((env (knessy--env-pop)))
+    ;; pop until we find the first one that's different than the current one
+    (while (equal env (knessy--env))
+      (setq env (knessy--env-pop)))
+    (knessy--set-env env)
+    ;; adds the current one in case the history is blank now
+    (knessy--env-append)))
+
 (defvar knessy-mode-map
   (let ((map (make-sparse-keymap)))
     (define-key map (kbd "c") 'knessy-config)
@@ -97,6 +108,7 @@ time of the last restart, or the amount of restarts."
     (define-key map (kbd "G") 'knessy--reset-in-progress)
     (define-key map (kbd "j") 'knessy-jump)
     (define-key map (kbd "f") 'knessy-filter)
+    (define-key map (kbd "[") 'knessy-env-go-back)
     map)
   "Keymap for `knessy-mode'.")
 
@@ -214,7 +226,12 @@ in Knessy mode, else lists all existing buffers."
 (defvar-local knessy--context
   "default")
 (defvar-local knessy--resource-type
-  "pods")
+    "pods")
+
+(defvar knessy--last-selected-namespace nil)
+(defvar knessy--last-selected-context nil)
+(defvar knessy--last-selected-resource-type nil)
+
 
 (defun knessy--select-config-file (filename)
   (interactive
@@ -236,7 +253,8 @@ in Knessy mode, else lists all existing buffers."
   (interactive)
   (setq knessy--context
         (completing-read "Context: "
-                         (knessy--contexts))))
+                         (knessy--contexts)))
+  (setq knessy--last-selected-context knessy--context))
 
 ;; TODO: *all*!
 (defun knessy--select-namespace ()
@@ -244,7 +262,8 @@ in Knessy mode, else lists all existing buffers."
   (setq knessy--namespace
         (completing-read "Namespace: "
                          (knessy--namespaces)))
-  (knessy--namespace-current-all?-update))
+  (knessy--namespace-current-all?-update)
+  (setq knessy--last-selected-namespace knessy--namespace))
 
 
 ;; TODO: *all*!
@@ -256,7 +275,21 @@ in Knessy mode, else lists all existing buffers."
   (setq knessy--view
         (or (ht-get knessy--last-selected-view knessy--resource-type nil)
             (asoc-get knessy-default-view-alist knessy--resource-type knessy-default-view-string)))
-  (setq knessy--table-remember-pos nil))
+  (setq knessy--table-remember-pos nil)
+  (setq knessy--last-selected-resource-type knessy--resource-type))
+
+(defvar knessy--resource-type-children
+  (ht ('deployment 'rs)
+      ('statefulset 'pod)
+      ('daemonset 'pod)
+      ('rs 'pod)))
+
+(defvar knessy--resource-type-synonyms
+  (ht ("deployments.apps" 'deployment)
+      ("statefulset.apps" 'statefulset)
+      ("daemonset.apps" 'daemonset)
+      ("replicaset.apps" 'rs)
+      ("pods" 'pod)))
 
 (defvar-local
     knessy--view
@@ -291,6 +324,7 @@ in Knessy mode, else lists all existing buffers."
 ;; TODO: write this
 (defun knessy--jump-children ()
   (interactive))
+
 
 (transient-define-prefix
   knessy-jump () "Jump"
@@ -480,6 +514,7 @@ Made so spamming refreshes doesn't result in 100 of kubectl calls.")
 ;; FIXME: I don't understand why this function is needed, but (commandp 'knessy--display2-aio) is nil?..
 (defun knessy--display2 (&optional sync)
   (interactive "P")
+  (knessy--env-append)
   (if sync
         (knessy--display2-sync)
       (knessy--display2-aio)))
@@ -595,6 +630,49 @@ Made so spamming refreshes doesn't result in 100 of kubectl calls.")
 (defvar knessy-buffer-list nil
   "The list of Knessy buffers.")
 
+;; TODO: make going forward (redo) possible
+
+(defvar-local knessy--env-history nil)
+
+(defun knessy--env ()
+  (list knessy--context knessy--namespace knessy--resource-type))
+
+(defun knessy--env-append ()
+  (let* ((peek (car knessy--env-history))
+         (entry (knessy--env)))
+    (if (equal peek entry)
+        knessy--env-history
+      (push entry knessy--env-history))))
+
+(defun knessy--env-pop ()
+  (if (> (length knessy--env-history) 0)
+      (pop knessy--env-history)
+    nil))
+
+(defun knessy--set-env (env)
+  ;; if env is nil, do nothing
+  (when env
+    (let* ((ctx (car env))
+           (ns (cadr env))
+           (rt (caddr env)))
+      (setq knessy--context ctx
+            knessy--namespace ns
+            knessy--resource-type rt))))
+
+(defun knessy--env-equal-current (env)
+  (equal (knessy--env) env))
+
+(comment
+ (knessy--env-append)
+ (knessy--env-pop)
+ (knessy--set-env (knessy--env-pop))
+ knessy--env-history)
+
+(defun knessy--set-env-last-selected ()
+  (setq knessy--context knessy--last-selected-context)
+  (setq knessy--namespace knessy--last-selected-namespace)
+  (setq knessy--resource-type knessy--last-selected-resource-type))
+
 ;; TODO: add knessy-rename and knessy-list-buffers and maybe knessy-prev-next
 (defun knessy-new ()
   "Create new knessy buffer."
@@ -604,7 +682,8 @@ Made so spamming refreshes doesn't result in 100 of kubectl calls.")
     (setq knessy-buffer-list (nconc knessy-buffer-list (list knessy-buffer)))
     (set-buffer knessy-buffer)
     (knessy-mode)
-    (switch-to-buffer knessy-buffer)))
+    (switch-to-buffer knessy-buffer)
+    (knessy--set-env-last-selected)))
 
 (defun knessy ()
   (interactive)

@@ -27,12 +27,27 @@
 (defun knessy--comparator-make-ready (column-num)
   (lambda (x y)
     "Returns t if x<y"
-    (let ((x-ready (aref (cadr x) column-num))  ; extract the strings
-          (y-ready (aref (cadr y) column-num)))
+    (let* ((x-ready (aref (cadr x) column-num))  ; extract the strings
+           (y-ready (aref (cadr y) column-num))
+           (x-rdy-total (knessy--extract-x-slash-y x-ready))
+           (y-rdy-total (knessy--extract-x-slash-y y-ready))
+           (x-rdy (string-to-number (car x-rdy-total)))
+           (x-total (string-to-number (cdr x-rdy-total)))
+           (y-rdy (string-to-number (car y-rdy-total)))
+           (y-total (string-to-number (cdr y-rdy-total))))
       ;; convert and compare
-      (<
-       (string-to-number (car (knessy--extract-x-slash-y x-ready)))
-       (string-to-number (car (knessy--extract-x-slash-y y-ready)))))))
+      (cond ((and (= x-rdy x-total)     ; both are fully ready
+                  (= y-rdy y-total))
+             (< x-total y-total))       ; compare by total
+            ((and (< x-rdy x-total)     ; if x is not fully ready but y is
+                  (= y-rdy y-total))
+             t)                         ; it's less
+            ((and (= x-rdy x-total)     ; if y is not fully ready but x is
+                  (< y-rdy y-total))
+             nil)                       ; it's greater
+            (t                          ; if both are not fully ready
+             (< x-rdy y-rdy))))))       ; compare by number of ready containers
+
 
 (defun knessy--comparator-make-cpu-usage (column-num)
   (lambda (x y)

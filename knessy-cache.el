@@ -37,4 +37,7 @@
       (knessy--log 4 keys)
       data)))
 
+(comment
+ (knessy--cache-resource-types-populate-async))
+
 (provide 'knessy-cache)
