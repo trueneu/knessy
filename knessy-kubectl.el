@@ -3,7 +3,8 @@
 (require 'knessy-utils)
 
 ;; TODO: include labels as filters here?
-(defun knessy--kubectl-cmd (verb &optional fmt omit-namespace? no-headers? omit-context?)
+;; TODO: rename to kubectl get command and fix the verb?..
+(defun knessy--kubectl-cmd (verb &optional fmt omit-namespace? no-headers? omit-context? omit-labels? omit-fields?)
   (let ((cmd (s-concat
               knessy-kubectl
               (if omit-context?
@@ -21,21 +22,47 @@
                 "")
               (if no-headers?
                   " --no-headers"
+                "")
+              (if (and knessy--label-selectors (not omit-labels?))
+                  (s-concat
+                   " -l "
+                   (knessy--utils-alist->str-= knessy--label-selectors))
+                "")
+              (if (and knessy--field-selectors (not omit-fields?))
+                  (s-concat
+                   " --field-selector "
+                   (knessy--utils-alist->str-= knessy--field-selectors))
                 ""))))
     (message cmd)
     cmd))
 
 (defun knessy--kubectl-get-contexts-cmd ()
   (let ((knessy--resource-type "get-contexts"))
-    (knessy--kubectl-cmd "config" "name" t nil t)))
+    (knessy--kubectl-cmd "config" "name" t nil t t t)))
 
 (defun knessy--kubectl-get-namespaces-cmd ()
   (let ((knessy--resource-type "namespaces"))
-    (knessy--kubectl-cmd "get" "custom-columns='NAME:.metadata.name'" t t)))
+    (knessy--kubectl-cmd "get" "custom-columns='NAME:.metadata.name'" t t nil t t)))
 
 (defun knessy--kubectl-get-labels-cmd ()
   (message "called knessy--kubectl-get-labels-cmd")
-  (knessy--kubectl-cmd "get" "jsonpath='{range .items[*]}{.metadata.labels}{\"\\n\"}{end}'" nil t))
+  (knessy--kubectl-cmd "get" "jsonpath='{range .items[*]}{.metadata.labels}{\"\\n\"}{end}'" nil t nil t t))
+
+(defun knessy--kubectl-get-obj-cmd (name &optional fmt)
+  (message "called knessy--kubectl-get-obj-cmd")
+  (let ((knessy--resource-type (s-concat knessy--resource-type "/" name)))
+    (knessy--kubectl-cmd "get" (cond ((or (eq fmt :json)
+                                          (null fmt))
+                                      "json")
+                                     ((eq fmt :yaml)
+                                      "yaml")))))
+
+(comment
+ (let ((knessy--context "k8s-local")
+       (knessy--namespace "kube-system")
+       (knessy--resource-type "pods")
+       (name "traefik-c5c8bf4ff-crlxs"))
+   (knessy--kubectl-get-obj-cmd name :yaml)))
 
 (defun knessy--kubectl-call->cmd (call)
   (let ((type (asoc-get call :type)))
@@ -103,6 +130,15 @@
      buf)
     (knessy--utils-read-buffer buf)))
 
+;; TODO: this definitely can be optimized away, the only difference is set vs list
+(defun knessy--kubectl-resource-types-set ()
+  (let ((buf (knessy--utils-make-buffer (generate-new-buffer-name (knessy--utils-kubectl-buffer-name "resource-types-set" nil t t)))))
+    (knessy--shell-exec
+     "kubectl api-resources --output name"
+     buf)
+    (knessy--utils-set
+     (knessy--utils-read-buffer buf))))
+
 (defun knessy--kubectl-resource-types-namespaced-set ()
   (let ((buf (knessy--utils-make-buffer (generate-new-buffer-name (knessy--utils-kubectl-buffer-name "resource-types-namespaced" nil t t)))))
     (knessy--shell-exec
@@ -130,6 +166,13 @@
    (list :resource-types knessy--context)
    (lambda ()
      (knessy--kubectl-resource-types-list))))
+
+(defun knessy--resource-types-set ()
+  (knessy--cache-get
+   knessy--cache
+   (list :resource-types-set knessy--context)
+   (lambda ()
+     (knessy--kubectl-resource-types-set))))
 
 (defun knessy--resource-types-namespaced ()
   (knessy--cache-get
@@ -282,6 +325,18 @@
 ;;   or at least capture those early enough.
 ;;   or pass those explicitly at the call time.
 
+(defun knessy--kubectl-parse-json-buffer (buf)
+  (with-current-buffer buf
+    (goto-char (point-min))
+    (json-parse-buffer)))
+
+(defun knessy--kubectl-get-object-parsed-sync (name)
+  (let ((buf (knessy--utils-make-buffer (generate-new-buffer-name (knessy--utils-kubectl-buffer-name name)))))
+    (knessy--shell-exec
+     (knessy--kubectl-get-obj-cmd name :json)
+     buf)
+    (knessy--kubectl-parse-json-buffer buf)))
+
 (defun knessy--cache-labels-populate-async (ctx ns resource-type)
   (knessy--log 3 "In knessy--cache-labels-populate-async")
   (let ((buf (knessy--utils-make-buffer
@@ -308,7 +363,10 @@
         (apply
          #'knessy--utils-ht-merge-duplicates-to-sets
          (mapcar
-          (lambda (s) (json-parse-string s))
+          (lambda (s)
+            (if (s-blank? s)
+                (ht)                    ; if there are no labels, the string is an empty string. Just create an empty hashtable instead of parsing
+              (json-parse-string s)))
           (knessy--utils-read-buffer buf t)))
         knessy-label-cache-ttl)
        (knessy--kill-success-buffer-maybe buf)))))

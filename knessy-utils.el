@@ -1,5 +1,7 @@
 ;; -*- lexical-binding: t; -*-
 
+(require 'asoc)
+
 ; Source - https://stackoverflow.com/a/65697090
 ; Posted by Vladimir Panteleev
 ; Retrieved 2026-03-23, License - CC BY-SA 4.0
@@ -95,5 +97,13 @@ in-place, the old list reference does not remain valid."
        "-stderr"
      "")
    "*"))
+
+(defun knessy--utils-alist->str-= (alist)
+  (s-join
+   ","
+   (asoc-map
+    (lambda (k v)
+      (format "%s=%s" k v))
+    alist)))
 
 (provide 'knessy-utils)

@@ -304,8 +304,33 @@ Specify empty hashtable if no post-processing is desired.
 (comment
  (knessy--propertize-status "Running"))
 
+(defvar-local knessy--representation-hidden-entry-ids (ht))
+(defvar-local knessy--representation-shadowed-entry-ids (ht))
+
+(defun knessy--propertize-shadow (value)
+  (propertize value 'face 'shadow))
+
 (defun knessy--make-tablist-entries (columns rename items)
   (knessy--log 3 "In knessy--make-tablist-entries")
+  ;; two-pass, don't know how to make it better
+  (ht-clear knessy--representation-hidden-entry-ids)
+  (ht-clear knessy--representation-shadowed-entry-ids)
+
+  (unless (s-blank? knessy--regex)
+    (mapc
+     (lambda (item)
+       (let ((id (car item))
+             (table (cadr item))
+             (match nil))
+         (dolist (value (ht-values table))
+           (when (string-match-p knessy--regex value)
+             (setq match t)))
+         (unless match
+           (if knessy--regex-hide
+               (ht-set knessy--representation-hidden-entry-ids id t)
+             (ht-set knessy--representation-shadowed-entry-ids id t)))))
+     (ht-items items)))
+
   (mapcar
    (lambda (item)
      (let ((id (car item))
@@ -319,6 +344,8 @@ Specify empty hashtable if no post-processing is desired.
             ;; TODO: maybe extract this to a separate dispatch table of some sorts
             (let ((value (ht-get table (ht-get rename column column) "??")))
               (cond
+               ((ht-contains? knessy--representation-shadowed-entry-ids id)
+                (knessy--propertize-shadow value))
                ((s-equals? "NAME" column)
                 (knessy--propertize-name id value))
                ((s-equals? "STATUS" column)
@@ -329,7 +356,11 @@ Specify empty hashtable if no post-processing is desired.
                 (knessy--propertize-ready value))
                (t value))))
           columns)))))
-   (ht-items items)))
+   (-remove
+    (lambda (item)
+      (let ((id (car item)))
+        (ht-contains? knessy--representation-hidden-entry-ids id)))
+    (ht-items items))))
 
 ;; TODO: most likely this will be called in the target buffer already
 (defun knessy--make-tablist (columns rename items widths)

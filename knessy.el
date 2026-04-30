@@ -34,6 +34,7 @@
 (load "./knessy-comparators.el")
 (load "./knessy-views.el")
 (load "./knessy-cache.el")
+(load "./knessy-env.el")
 
 (require 'knessy-kubectl)
 (require 'knessy-process)
@@ -43,6 +44,7 @@
 (require 'knessy-comparators)
 (require 'knessy-views)
 (require 'knessy-cache)
+(require 'knessy-env)
 
 (load "./knessy-tests.el")
 (require 'knessy-tests)
@@ -84,14 +86,13 @@ time of the last restart, or the amount of restarts."
 
 (defun knessy-env-go-back ()
   (interactive)
-  ;; toss the current active one
-  (let ((env (knessy--env-pop)))
-    ;; pop until we find the first one that's different than the current one
-    (while (equal env (knessy--env))
-      (setq env (knessy--env-pop)))
-    (knessy--set-env env)
-    ;; adds the current one in case the history is blank now
-    (knessy--env-append)))
+  (let ((env (knessy--env-ring-read-back)))
+    (knessy--set-env env)))
+
+(defun knessy-env-go-forward ()
+  (interactive)
+  (let ((env (knessy--env-ring-read-forward)))
+    (knessy--set-env env)))
 
 (defvar knessy-mode-map
   (let ((map (make-sparse-keymap)))
@@ -109,6 +110,7 @@ time of the last restart, or the amount of restarts."
     (define-key map (kbd "j") 'knessy-jump)
     (define-key map (kbd "f") 'knessy-filter)
     (define-key map (kbd "[") 'knessy-env-go-back)
+    (define-key map (kbd "]") 'knessy-env-go-forward)
     map)
   "Keymap for `knessy-mode'.")
 
@@ -267,6 +269,8 @@ in Knessy mode, else lists all existing buffers."
 
 
 ;; TODO: *all*!
+;; TODO: reset labels and fields on resource type, ns, ctx change? make it configurable?
+;; TODO: maybe also reset the regex filter
 (defun knessy--select-resource-type ()
   (interactive)
   (setq knessy--resource-type
@@ -284,12 +288,30 @@ in Knessy mode, else lists all existing buffers."
       ('daemonset 'pod)
       ('rs 'pod)))
 
-(defvar knessy--resource-type-synonyms
+;; TODO: add symbols from knessy--field-selectors-fields-ht
+
+(defvar knessy--resource-type-str->sym
   (ht ("deployments.apps" 'deployment)
-      ("statefulset.apps" 'statefulset)
-      ("daemonset.apps" 'daemonset)
-      ("replicaset.apps" 'rs)
-      ("pods" 'pod)))
+      ("Deployment" 'deployment)
+      ("statefulsets.apps" 'statefulset)
+      ("StatefulSet" 'statefulset)
+      ("daemonsets.apps" 'daemonset)
+      ("DaemonSet" 'daemonset)
+      ("replicasets.apps" 'rs)
+      ("ReplicaSet" 'rs)
+      ("pods" 'pod)
+      ("Pod" 'pod)))
+
+(defvar knessy--resource-type-sym->str-list
+  (let ((res (ht)))
+    (dolist (item (ht-items knessy--resource-type-str->sym) res)
+      (let ((str (car item))
+            (sym (cadr item)))
+        (message "%s:%s" str sym)
+        (unless (ht-contains? res sym)
+          (ht-set res sym '()))
+        (ht-update-with! res sym (lambda (l) (cons str l)) '())))))
+
 
 (defvar-local
     knessy--view
@@ -325,11 +347,118 @@ in Knessy mode, else lists all existing buffers."
 (defun knessy--jump-children ()
   (interactive))
 
+(defun knessy--kind->resource-type (kind)
+  (let* ((sym (ht-get knessy--resource-type-str->sym kind))
+         (types (ht-get knessy--resource-type-sym->str-list sym)))
+    (cl-loop for type in types
+             when (ht-contains? (knessy--resource-types-set) type)
+             return type
+             do (message type))))
+
+(comment
+ (ht-contains? (knessy--resource-types-set) "replicasets.apps"))
+
+;; TODO: handle the errors (no owner, no metadata etc)
+(defun knessy--jump-owner ()
+  (interactive)
+  (let* ((selected-id (tabulated-list-get-id))
+         ;; TODO: extract all this functionality to functions working on "objects", don't cddr this shit
+         (name (cddr selected-id))
+         (obj (knessy--kubectl-get-object-parsed-sync name)))
+    (if-let* ((metadata (ht-get obj "metadata")))
+        (if-let* ((owner-refs (ht-get metadata "ownerReferences")))
+            (if (> (length owner-refs) 0)
+                (let* ((owner-ref (aref owner-refs 0))
+                       (owner-name (ht-get owner-ref "name"))
+                       (owner-kind (ht-get owner-ref "kind"))
+                       (owner-resource-type (knessy--kind->resource-type owner-kind)))
+                  (setq knessy--resource-type owner-resource-type)
+                  (setq knessy--field-selectors `(("metadata.name" . ,owner-name)))
+                  (call-interactively #'knessy--display2))
+              (error "Object ownerReferences are empty"))
+          (error "Object metadata has no ownerReferences"))
+      (error "Object has no metadata"))))
+
+(defvar-local knessy--field-selectors '())
+
+(defvar knessy--field-selectors-fields-ht
+  (ht ('pod '("spec.nodeName"
+              "spec.restartPolicy"
+              "spec.schedulerName"
+              "spec.serviceAccountName"
+              "spec.hostNetwork"
+              "status.phase"
+              "status.podIP"
+              "status.podIPs"
+              "status.nominatedNodeName"))
+      ('event '("involvedObject.kind"
+                "involvedObject.namespace"
+                "involvedObject.name"
+                "involvedObject.uid"
+                "involvedObject.apiVersion"
+                "involvedObject.resourceVersion"
+                "involvedObject.fieldPath"
+                "reason"
+                "reportingComponent"
+                "source"
+                "type"))
+      ('secret '("type"))
+      ('namespace '("status.phase"))
+      ('rs '("status.replicas")) ;; FIXME: doesn't work?
+      ('rscontroller '("status.replicas"))
+      ('job '("status.successful"))
+      ('node '("spec.unschedulable"))
+      ('csr '("spec.signerName"))))
+
+(defvar knessy--field-selectors-fields-common
+  '("metadata.name" "metadata.namespace"))
+
+(defun knessy--field-selectors-fields (resource-type)
+  (append
+   knessy--field-selectors-fields-common
+   (ht-get knessy--field-selectors-fields-ht
+           (ht-get knessy--resource-type-str->sym resource-type))))
+
+(defcustom knessy-field-selector-finish-choice "*FINISH*"
+  "String to use to finish field selectors choosing process"
+  :group 'knessy
+  :type 'string)
+
+(comment
+ (read-string)
+ (append '(1) '(2)))
+
+;; TODO: finish this, so we can jump to children
+(defun knessy--filter-field-selector ()
+  (interactive)
+  (let ((current-field nil)
+        (current-value nil)
+        (new-filters '())
+        ;; if the namespace is ALL or the resource-type is global
+        (fields (knessy--field-selectors-fields knessy--resource-type)))
+    (while (not (s-equals? current-field knessy-label-selector-finish-choice))
+      (setq current-field
+            (completing-read
+             "Select field: "
+             (cons knessy-field-selector-finish-choice
+                   fields)))
+      (unless (s-equals? current-field knessy-field-selector-finish-choice)
+        ;; TODO: I'm pretty sure we can do completing-read here
+        (setq current-value
+              (read-string
+               "Enter value: "))
+        (push (cons current-field current-value) new-filters)))
+    (setq knessy--field-selectors new-filters)))
+
+(comment
+ (catch)
+ (ht-get nil 'key))
 
 (transient-define-prefix
   knessy-jump () "Jump"
   ["Jump to"
-     ("c" "children" knessy--jump-children)])
+   ("c" "children" knessy--jump-children)
+   ("o" "owner" knessy--jump-owner)])
 
 (defcustom knessy-label-selector-finish-choice
   "*FINISH*"
@@ -349,7 +478,7 @@ in Knessy mode, else lists all existing buffers."
 (defun knessy--resource-type-global? (resource-type)
   (not (knessy--resource-type-namespaced? resource-type)))
 
-;; TODO: write this
+;; TODO: make it actually filter in kubectl commands
 (defun knessy--filter-label ()
   (interactive)
   (let ((current-label nil)
@@ -384,10 +513,29 @@ in Knessy mode, else lists all existing buffers."
        (knessy--resource-type "pods"))
    (knessy--filter-label)))
 
+(defvar-local knessy--regex "")
+(defvar-local knessy--regex-hide nil)
+
+(defun knessy--set-regex ()
+  (interactive)
+  (let ((regex (read-string "Regex: " knessy--regex)))
+    ;; TODO: verify if regex is valid
+    (setq knessy--regex regex))
+  (knessy--repaint))
+
+(defun knessy--toggle-regex-hide ()
+  (interactive)
+  (setq knessy--regex-hide (not knessy--regex-hide))
+  (message "Regex Hide is now %s" knessy--regex-hide)
+  (knessy--repaint))
+
 (transient-define-prefix
   knessy-filter () "Filter"
   ["Filter"
-     ("l" "label" knessy--filter-label)])
+   ("l" "label" knessy--filter-label)
+   ("f" "field" knessy--filter-field-selector)
+   ("r" "regex" knessy--set-regex)
+   ("h" "regex-hide" knessy--toggle-regex-hide)])
 
 (defvar-local knessy--data nil
   "Data that was received with the latest query.")
@@ -514,7 +662,7 @@ Made so spamming refreshes doesn't result in 100 of kubectl calls.")
 ;; FIXME: I don't understand why this function is needed, but (commandp 'knessy--display2-aio) is nil?..
 (defun knessy--display2 (&optional sync)
   (interactive "P")
-  (knessy--env-append)
+  (knessy--env-ring-push (knessy--env))
   (if sync
         (knessy--display2-sync)
       (knessy--display2-aio)))
@@ -625,53 +773,9 @@ Made so spamming refreshes doesn't result in 100 of kubectl calls.")
     (push buf-name knessy-buffer-list)
     buf))
 
-;; TODO: implement switching to buffer
-
 (defvar knessy-buffer-list nil
   "The list of Knessy buffers.")
 
-;; TODO: make going forward (redo) possible
-
-(defvar-local knessy--env-history nil)
-
-(defun knessy--env ()
-  (list knessy--context knessy--namespace knessy--resource-type))
-
-(defun knessy--env-append ()
-  (let* ((peek (car knessy--env-history))
-         (entry (knessy--env)))
-    (if (equal peek entry)
-        knessy--env-history
-      (push entry knessy--env-history))))
-
-(defun knessy--env-pop ()
-  (if (> (length knessy--env-history) 0)
-      (pop knessy--env-history)
-    nil))
-
-(defun knessy--set-env (env)
-  ;; if env is nil, do nothing
-  (when env
-    (let* ((ctx (car env))
-           (ns (cadr env))
-           (rt (caddr env)))
-      (setq knessy--context ctx
-            knessy--namespace ns
-            knessy--resource-type rt))))
-
-(defun knessy--env-equal-current (env)
-  (equal (knessy--env) env))
-
-(comment
- (knessy--env-append)
- (knessy--env-pop)
- (knessy--set-env (knessy--env-pop))
- knessy--env-history)
-
-(defun knessy--set-env-last-selected ()
-  (setq knessy--context knessy--last-selected-context)
-  (setq knessy--namespace knessy--last-selected-namespace)
-  (setq knessy--resource-type knessy--last-selected-resource-type))
 
 ;; TODO: add knessy-rename and knessy-list-buffers and maybe knessy-prev-next
 (defun knessy-new ()
@@ -712,7 +816,16 @@ Made so spamming refreshes doesn't result in 100 of kubectl calls.")
                             knessy--resource-type)
                     (if (s-equals? knessy-default-view-string knessy--view)
                         ""
-                      (s-concat " (" knessy--view ")"))))))
+                      (s-concat " (" knessy--view ")"))
+                    (if knessy--label-selectors
+                        (s-concat " " (knessy--utils-alist->str-= knessy--label-selectors))
+                      "")
+                    (if knessy--field-selectors
+                        (s-concat " " (knessy--utils-alist->str-= knessy--field-selectors))
+                        "")
+                    (if (s-blank? knessy--regex)
+                        ""
+                      (format " /%s/" knessy--regex))))))
   (run-mode-hooks 'knessy-mode-hook))
 
 ;; TODO: next thing, implement data <-> display link to hash out the data architecture
