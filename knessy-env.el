@@ -1,26 +1,37 @@
 ;; -*- lexical-binding: t; -*-
 
-;; TODO: this should probably include regex filters, label, field selectors
-(comment
- (car (cddddr '(1 2 3 4 5))))
-
 (defun knessy--env ()
-  (list knessy-kubeconfig knessy--context knessy--namespace knessy--resource-type knessy--label-selectors))
+  (list knessy-kubeconfig knessy--context knessy--namespace knessy--resource-type knessy--label-selectors knessy--field-selectors))
+
+(defun knessy--env-entry->str (env)
+  (let* ((config (nth 0 env))
+         (ctx (nth 1 env))
+         (ns (nth 2 env))
+         (rt (nth 3 env))
+         (labels (nth 4 env))
+         (fields (nth 5 env)))
+    (s-join ":" (list config ctx ns rt
+                      (knessy--utils-alist->str-= labels)
+                      (knessy--utils-alist->str-= fields)))))
+
 
 (defun knessy--set-env (env)
   ;; if env is nil, do nothing
   (when env
-    (let* ((config (car env))
-           (ctx (cadr env))
-           (ns (caddr env))
-           (rt (cadddr env))
-           (labels (car (cddddr env))))
+    ;; TODO: maybe write first, second, etc?
+    (let* ((config (nth 0 env))
+           (ctx (nth 1 env))
+           (ns (nth 2 env))
+           (rt (nth 3 env))
+           (labels (nth 4 env))
+           (fields (nth 5 env)))
       (setq
        knessy-kubeconfig config
        knessy--context ctx
        knessy--namespace ns
        knessy--resource-type rt
-       knessy--label-selectors labels))))
+       knessy--label-selectors labels
+       knessy--field-selectors fields))))
 
 (defun knessy--env-equal-current (env)
   ;; might become more complicated if we don't want to include regex or other filters in equality, but want to restore them
@@ -40,7 +51,7 @@
         knessy--env-ring-read 0
         knessy--env-ring-write 1
         knessy--env-ring-end 1)
-  (aset knessy--env-ring 0 '("entry0")))
+  (aset knessy--env-ring 0 (knessy--env)))
 
 (defun knessy--env-ring-show ()
   (interactive)
@@ -60,7 +71,8 @@
                                     ("item" 50 t)])
       (setq tabulated-list-entries entries)
       (tabulated-list-init-header)
-      (tabulated-list-print))))
+      (tabulated-list-print))
+    (display-buffer buf)))
 
 (defun knessy--env-ring-show-pretty ()
   (interactive)
@@ -77,7 +89,8 @@
                                     ("ITEM" 50 t)])
       (setq tabulated-list-entries entries)
       (tabulated-list-init-header)
-      (tabulated-list-print))))
+      (tabulated-list-print))
+    (display-buffer buf)))
 
 
 (defun knessy--env-ring-tablist-item (idx)
@@ -86,7 +99,7 @@
    (if (= idx knessy--env-ring-end) "*" "")
    (if (= idx knessy--env-ring-read) "*" "")
    (if (= idx knessy--env-ring-write) "*" "")
-   (s-join ":" (aref knessy--env-ring idx))))
+   (knessy--env-entry->str (aref knessy--env-ring idx))))
 
 (defun knessy--env-ring-tablist-item-pretty (idx)
   (interactive)
@@ -95,7 +108,7 @@
     (if (= idx knessy--env-ring-begin) ">>> " "")
     (if (= idx knessy--env-ring-end) "<<< " "")
     (if (= idx knessy--env-ring-read) "*" ""))
-   (s-join ":" (aref knessy--env-ring idx))))
+   (knessy--env-entry->str (aref knessy--env-ring idx))))
 
 (defun knessy--env-ring-init ()
   (aset knessy--env-ring 0 (knessy--env)))

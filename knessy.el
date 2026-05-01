@@ -97,7 +97,7 @@ time of the last restart, or the amount of restarts."
 (defvar knessy-mode-map
   (let ((map (make-sparse-keymap)))
     (define-key map (kbd "c") 'knessy-config)
-    (define-key map (kbd "d") 'knessy-do)
+    (define-key map (kbd "d") 'knessy-describe)
     (define-key map (kbd "m") 'knessy-mark)
     (define-key map (kbd "u") 'knessy-unmark)
     (define-key map (kbd "M") 'knessy-mark-all)
@@ -107,6 +107,7 @@ time of the last restart, or the amount of restarts."
     (define-key map (kbd "K") 'knessy-cleanup-buffers)
     (define-key map (kbd "g") 'knessy--display2)
     (define-key map (kbd "G") 'knessy--reset-in-progress)
+    (define-key map (kbd "e") 'knessy-edit)
     (define-key map (kbd "j") 'knessy-jump)
     (define-key map (kbd "f") 'knessy-filter)
     (define-key map (kbd "[") 'knessy-env-go-back)
@@ -166,7 +167,7 @@ in Knessy mode, else lists all existing buffers."
 (defun knessy-rename (name)
   "Rename current Knessy buffer to NAME."
   (interactive "MRename Knessy buffer: ")
-  (let ((new-name (knessy--main-buffer-name knessy-base-buffer-name name)))
+  (let ((new-name (generate-new-buffer-name (knessy--main-buffer-name knessy-base-buffer-name name))))
     (rename-buffer new-name)))
 
 ;; TODO: maybe optimise mark repainting by changing the entry directly
@@ -250,23 +251,59 @@ in Knessy mode, else lists all existing buffers."
   (interactive)
   (message "Hello world!"))
 
-;; TODO: *all*?..
+(defcustom knessy-reset-label-selectors-on-resource-type-change nil
+  "Whether to reset label filters on resource type change."
+  :group 'knessy
+  :type 'boolean)
+
+(defcustom knessy-reset-field-selectors-on-resource-type-change nil
+  "Whether to reset field filters on resource type change."
+  :group 'knessy
+  :type 'boolean)
+
+(defcustom knessy-reset-label-selectors-on-namespace-change nil
+  "Whether to reset label filters on resource type change."
+  :group 'knessy
+  :type 'boolean)
+
+(defcustom knessy-reset-field-selectors-on-namespace-change nil
+  "Whether to reset field filters on resource type change."
+  :group 'knessy
+  :type 'boolean)
+
+(defcustom knessy-reset-label-selectors-on-context-change nil
+  "Whether to reset label filters on resource type change."
+  :group 'knessy
+  :type 'boolean)
+
+(defcustom knessy-reset-field-selectors-on-context-change nil
+  "Whether to reset field filters on resource type change."
+  :group 'knessy
+  :type 'boolean)
+
+;; TODO: *all*?.. contexts
 (defun knessy--select-context ()
   (interactive)
   (setq knessy--context
         (completing-read "Context: "
                          (knessy--contexts)))
-  (setq knessy--last-selected-context knessy--context))
+  (setq knessy--last-selected-context knessy--context)
+  (when knessy-reset-label-selectors-on-context-change
+    (setq knessy--label-selectors '()))
+  (when knessy-reset-field-selectors-on-context-change
+    (setq knessy--field-selectors '())))
 
-;; TODO: *all*!
 (defun knessy--select-namespace ()
   (interactive)
   (setq knessy--namespace
         (completing-read "Namespace: "
                          (knessy--namespaces)))
   (knessy--namespace-current-all?-update)
-  (setq knessy--last-selected-namespace knessy--namespace))
-
+  (setq knessy--last-selected-namespace knessy--namespace)
+  (when knessy-reset-label-selectors-on-namespace-change
+    (setq knessy--label-selectors '()))
+  (when knessy-reset-field-selectors-on-namespace-change
+    (setq knessy--field-selectors '())))
 
 ;; TODO: *all*!
 ;; TODO: reset labels and fields on resource type, ns, ctx change? make it configurable?
@@ -280,7 +317,11 @@ in Knessy mode, else lists all existing buffers."
         (or (ht-get knessy--last-selected-view knessy--resource-type nil)
             (asoc-get knessy-default-view-alist knessy--resource-type knessy-default-view-string)))
   (setq knessy--table-remember-pos nil)
-  (setq knessy--last-selected-resource-type knessy--resource-type))
+  (setq knessy--last-selected-resource-type knessy--resource-type)
+  (when knessy-reset-label-selectors-on-resource-type-change
+    (setq knessy--label-selectors '()))
+  (when knessy-reset-field-selectors-on-resource-type-change
+    (setq knessy--field-selectors '())))
 
 (defvar knessy--resource-type-children
   (ht ('deployment 'rs)
@@ -302,16 +343,19 @@ in Knessy mode, else lists all existing buffers."
       ("pods" 'pod)
       ("Pod" 'pod)))
 
+(defun knessy--resource-type-child (owner-resource-type)
+  (knessy--res)
+  (ht-get knessy--resource-type-children
+          (knessy--resource-type-str->sym owner-resource-type)))
+
 (defvar knessy--resource-type-sym->str-list
   (let ((res (ht)))
     (dolist (item (ht-items knessy--resource-type-str->sym) res)
       (let ((str (car item))
             (sym (cadr item)))
-        (message "%s:%s" str sym)
         (unless (ht-contains? res sym)
           (ht-set res sym '()))
         (ht-update-with! res sym (lambda (l) (cons str l)) '())))))
-
 
 (defvar-local
     knessy--view
@@ -344,16 +388,74 @@ in Knessy mode, else lists all existing buffers."
      ("v" "view" knessy--select-view)])
 
 ;; TODO: write this
+(defun knessy-edit (&optional json?)
+  (interactive "P")
+  (let* ((selected-id (tabulated-list-get-id))
+         ;; TODO: extract all this functionality to functions working on "objects", don't cddr this shit
+         (name (cddr selected-id))
+         (obj-buf (knessy--kubectl-get-object-sync name (if json? :json :yaml))))
+    (with-current-buffer obj-buf
+      (if json?
+          (knessy-json-mode)
+        (knessy-yaml-mode)))
+
+    (display-buffer obj-buf)))
+
+(defun knessy-describe ()
+  (interactive "")
+  (let* ((selected-id (tabulated-list-get-id))
+         ;; TODO: extract all this functionality to functions working on "objects", don't cddr this shit
+         (name (cddr selected-id))
+         (obj-buf (knessy--kubectl-describe-object-sync name)))
+    (with-current-buffer obj-buf
+      (text-mode)
+      (read-only-mode))
+    (display-buffer obj-buf)))
+
+(comment
+ (append (vector 1 2 3) nil)
+ (asoc)
+ (asoc-put! '((apple . 1) (banana . 2)) 'a 'b)
+ (let ((my-alist '((apple . 1) (banana . 2))))
+  ;; Update existing key
+  (asoc-put! my-alist 'apple 10)
+  ;; Add new key
+  (asoc-put! my-alist 'orange 3)
+  my-alist))
+
+;; TODO: write this
 (defun knessy--jump-children ()
-  (interactive))
+  (interactive)
+  (let* ((selected-id (tabulated-list-get-id))
+         ;; TODO: extract all this functionality to functions working on "objects", don't cddr this shit
+         (name (cddr selected-id))
+         (obj (knessy--kubectl-get-object-parsed-sync name)))
+    (if-let* ((spec (ht-get obj "spec")))
+        (if-let* ((selector (ht-get spec "selector")))
+            (if-let* ((match-labels (ht-get selector "matchLabels")))
+                (let ((children-resource-type (knessy--child-resource-type knessy--resource-type)))
+                  (setq knessy--label-selectors (ht->alist match-labels))
+                  (setq knessy--resource-type children-resource-type)
+                  (knessy--display2))
+
+              (error "Object selector has no matchLabels"))
+          (error "Object spec has no selector"))
+      (error "Object has no spec"))))
 
 (defun knessy--kind->resource-type (kind)
   (let* ((sym (ht-get knessy--resource-type-str->sym kind))
          (types (ht-get knessy--resource-type-sym->str-list sym)))
     (cl-loop for type in types
              when (ht-contains? (knessy--resource-types-set) type)
-             return type
-             do (message type))))
+             return type)))
+
+(defun knessy--child-resource-type (owner-resource-type)
+  (let* ((sym (ht-get knessy--resource-type-str->sym owner-resource-type))
+         (child-sym (ht-get knessy--resource-type-children sym))
+         (types (ht-get knessy--resource-type-sym->str-list child-sym)))
+    (cl-loop for type in types
+             when (ht-contains? (knessy--resource-types-set) type)
+             return type)))
 
 (comment
  (ht-contains? (knessy--resource-types-set) "replicasets.apps"))
@@ -439,7 +541,10 @@ in Knessy mode, else lists all existing buffers."
     (while (not (s-equals? current-field knessy-label-selector-finish-choice))
       (setq current-field
             (completing-read
-             "Select field: "
+             (s-concat "(" (if new-filters
+                               (knessy--utils-alist->str-= new-filters)
+                             (knessy--utils-alist->str-= knessy--field-selectors))
+                       ") Select field: ")
              (cons knessy-field-selector-finish-choice
                    fields)))
       (unless (s-equals? current-field knessy-field-selector-finish-choice)
@@ -491,7 +596,10 @@ in Knessy mode, else lists all existing buffers."
     (while (not (s-equals? current-label knessy-label-selector-finish-choice))
       (setq current-label
             (completing-read
-             "Select label: "
+             (s-concat "(" (if new-selectors
+                               (knessy--utils-alist->str-= new-selectors)
+                             (knessy--utils-alist->str-= knessy--label-selectors))
+                       ") Select label: ")
              (cons knessy-label-selector-finish-choice
                    (ht-keys
                     (knessy--cache-get knessy--cache lookup-keys #'knessy--kubectl-labels)))))
@@ -526,7 +634,7 @@ in Knessy mode, else lists all existing buffers."
 (defun knessy--toggle-regex-hide ()
   (interactive)
   (setq knessy--regex-hide (not knessy--regex-hide))
-  (message "Regex Hide is now %s" knessy--regex-hide)
+  (knessy--log 4 (format "Regex Hide is now %s" knessy--regex-hide))
   (knessy--repaint))
 
 (transient-define-prefix
@@ -567,8 +675,8 @@ If omitted, use the current one (for synchronous calls)."
                                 (ht)
                                 (ht (nil item))
                                 (ht ("NAME" 8)))))))
-  (message "Repainted!")
-  (knessy--log 3 (format "Now: %s" (current-time-string))))
+  (knessy--log 1 "Done!")
+  (knessy--log 4 (format "Now: %s" (current-time-string))))
 
 (comment
  (let ((abc 'def))
@@ -628,7 +736,7 @@ If omitted, use the current one (for synchronous calls)."
             (post-process-ht (asoc-get call :post-process (ht)))
             (post-process-item (asoc-get call :post-process-item nil))
             (knessy--resource-type (asoc-get call :resource-type knessy--resource-type)))
-        (message (buffer-name (current-buffer)))
+        (knessy--log 4 (format "in knessy--perform-calls-sync, current buffer: %s" (buffer-name (current-buffer))))
         (knessy--shell-exec (knessy--kubectl-call->cmd call) buf)
         (push (knessy--parse-table-kubectl-output buf headers pre-process-ht post-process-ht post-process-item) results)
         (knessy--kill-success-buffer-maybe buf)))
@@ -645,7 +753,7 @@ Made so spamming refreshes doesn't result in 100 of kubectl calls.")
     (if knessy--debug
         (setq knessy--refresh-in-progress nil)
       (setq knessy--refresh-in-progress t))
-    (message "Refreshing...")
+    (knessy--log 4 "Refreshing...")
     (let* ((display-buf (current-buffer)))
       (knessy--cache-labels-populate-async knessy--context knessy--namespace knessy--resource-type)
       (let* ((view (ht-get knessy-views (cons knessy--resource-type knessy--view)
@@ -680,9 +788,8 @@ Made so spamming refreshes doesn't result in 100 of kubectl calls.")
     (if knessy--debug
         (setq knessy--refresh-in-progress nil)
       (setq knessy--refresh-in-progress t))
-    (message "Refreshing...")
+    (knessy--log 4 "Refreshing...")
     (let* ((display-buf (current-buffer)))
-      (message (format "Display buf: %s" (buffer-name display-buf)))
       (knessy--cache-labels-populate-async knessy--context knessy--namespace knessy--resource-type)
       (let* ((view (ht-get knessy-views (cons knessy--resource-type knessy--view)
                            `((:calls . (((:type . ,knessy-call-default-type)))))))
@@ -756,15 +863,11 @@ Made so spamming refreshes doesn't result in 100 of kubectl calls.")
      ;; (display-buffer display-buf)
     (setq knessy--refresh-in-progress nil)))
 
-(transient-define-prefix
-  knessy-do () "doc string"
-  ["Do"
-   ("d" "display" knessy--display2-sync)])
-
 (defun knessy--main-buffer-name (base suffix)
-  (if suffix
-      (format "*%s - %s*" base suffix)
-    (format "*%s*" base)))
+  (if (s-blank? suffix)
+      (format "*%s*" base)
+    (format "*%s - %s*" base suffix)))
+
 
 (defun knessy-get-new-buffer ()
   (let* ((buf-name (generate-new-buffer-name
@@ -829,6 +932,38 @@ Made so spamming refreshes doesn't result in 100 of kubectl calls.")
   (run-mode-hooks 'knessy-mode-hook))
 
 ;; TODO: next thing, implement data <-> display link to hash out the data architecture
+
+;; TODO: save to a temp file
+;; run kubectl apply -f file with namespace context config etc
+;; reopen again if refused with error
+;; close the buffer
+(defun knessy-apply ()
+  (interactive))
+
+(defun knessy-close ()
+  (interactive))
+
+(defvar knessy-yaml-mode-map
+  (let ((map (make-sparse-keymap)))
+    (define-key map (kbd "C-c C-c") 'knessy-apply)
+    (define-key map (kbd "C-c C-k") 'knessy-close)
+    map)
+  "Keymap for `knessy-yaml-mode'.")
+
+(defvar knessy-json-mode-map
+  (let ((map (make-sparse-keymap)))
+    (define-key map (kbd "C-c C-c") 'knessy-apply)
+    (define-key map (kbd "C-c C-k") 'knessy-close)
+    map)
+  "Keymap for `knessy-json-mode'.")
+
+;; FIXME: no hooks run from yaml-ts-mode?.. keybindings are missing
+;; also, are yaml-ts-mode and json-ts-mode standard and default now?
+(define-derived-mode knessy-yaml-mode yaml-ts-mode "Knessy-YAML"
+  "Mode for Knessy buffers with YAML objects.")
+
+(define-derived-mode knessy-json-mode json-ts-mode "Knessy-JSON"
+  "Mode for Knessy buffers with JSON objects.")
 
 (add-hook
  'knessy-mode-hook

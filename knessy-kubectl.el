@@ -33,7 +33,7 @@
                    " --field-selector "
                    (knessy--utils-alist->str-= knessy--field-selectors))
                 ""))))
-    (message cmd)
+    (knessy--log 3 cmd)
     cmd))
 
 (defun knessy--kubectl-get-contexts-cmd ()
@@ -45,17 +45,22 @@
     (knessy--kubectl-cmd "get" "custom-columns='NAME:.metadata.name'" t t nil t t)))
 
 (defun knessy--kubectl-get-labels-cmd ()
-  (message "called knessy--kubectl-get-labels-cmd")
+  (knessy--log 4 "called knessy--kubectl-get-labels-cmd")
   (knessy--kubectl-cmd "get" "jsonpath='{range .items[*]}{.metadata.labels}{\"\\n\"}{end}'" nil t nil t t))
 
 (defun knessy--kubectl-get-obj-cmd (name &optional fmt)
-  (message "called knessy--kubectl-get-obj-cmd")
+  (knessy--log 4 "called knessy--kubectl-get-obj-cmd")
   (let ((knessy--resource-type (s-concat knessy--resource-type "/" name)))
     (knessy--kubectl-cmd "get" (cond ((or (eq fmt :json)
                                           (null fmt))
                                       "json")
                                      ((eq fmt :yaml)
-                                      "yaml")))))
+                                      "yaml")) nil nil nil t t)))
+
+(defun knessy--kubectl-describe-obj-cmd (name)
+  (knessy--log 4 "called knessy--kubectl-describe-obj-cmd")
+  (let ((knessy--resource-type (s-concat knessy--resource-type "/" name)))
+    (knessy--kubectl-cmd "describe")))
 
 (comment
  (let ((knessy--context "k8s-local")
@@ -336,6 +341,20 @@
      (knessy--kubectl-get-obj-cmd name :json)
      buf)
     (knessy--kubectl-parse-json-buffer buf)))
+
+(defun knessy--kubectl-get-object-sync (name &optional fmt)
+  (let ((buf (knessy--utils-make-buffer (generate-new-buffer-name (knessy--utils-kubectl-buffer-name name)))))
+    (knessy--shell-exec
+     (knessy--kubectl-get-obj-cmd name fmt)
+     buf)
+    buf))
+
+(defun knessy--kubectl-describe-object-sync (name)
+  (let ((buf (knessy--utils-make-buffer (generate-new-buffer-name (knessy--utils-kubectl-buffer-name name)))))
+    (knessy--shell-exec
+     (knessy--kubectl-describe-obj-cmd name)
+     buf)
+    buf))
 
 (defun knessy--cache-labels-populate-async (ctx ns resource-type)
   (knessy--log 3 "In knessy--cache-labels-populate-async")

@@ -7,8 +7,8 @@
   "If t, buffers with command output are killed")
 
 (defun knessy--default-sentinel (proc ev)
-  (message (format "Received event from process %s: %s"
-                   (process-name proc) ev)))
+  (knessy--log 3 (format "Received event from process %s: %s"
+                         (process-name proc) ev)))
 
 (defun knessy--make-callback-sentinel (f buf buferr)
   (lambda (proc ev)
