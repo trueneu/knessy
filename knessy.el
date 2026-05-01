@@ -387,7 +387,6 @@ in Knessy mode, else lists all existing buffers."
      ("f" "config-file" knessy--select-config-file)
      ("v" "view" knessy--select-view)])
 
-;; TODO: write this
 (defun knessy-edit (&optional json?)
   (interactive "P")
   (let* ((selected-id (tabulated-list-get-id))
@@ -395,6 +394,7 @@ in Knessy mode, else lists all existing buffers."
          (name (cddr selected-id))
          (obj-buf (knessy--kubectl-get-object-sync name (if json? :json :yaml))))
     (with-current-buffer obj-buf
+      (goto-char (point-min))
       (if json?
           (knessy-json-mode)
         (knessy-yaml-mode)))
@@ -899,10 +899,6 @@ Made so spamming refreshes doesn't result in 100 of kubectl calls.")
 (define-derived-mode knessy-mode tabulated-list-mode "Knessy"
   "Mode for Knessy buffers."
   (buffer-disable-undo)
-  (kill-all-local-variables)
-  (setq mode-name "Knessy")
-  (setq major-mode 'knessy-mode)
-  (use-local-map knessy-mode-map)
   (knessy--caches-populate-async)
   ;; FIXME: this actually breaks stuff, global hook -- let's override revert for Knessy buffers?
   ;; (add-hook 'tabulated-list-revert-hook #'knessy--display-aio)
@@ -928,8 +924,7 @@ Made so spamming refreshes doesn't result in 100 of kubectl calls.")
                         "")
                     (if (s-blank? knessy--regex)
                         ""
-                      (format " /%s/" knessy--regex))))))
-  (run-mode-hooks 'knessy-mode-hook))
+                      (format " /%s/" knessy--regex)))))))
 
 ;; TODO: next thing, implement data <-> display link to hash out the data architecture
 
