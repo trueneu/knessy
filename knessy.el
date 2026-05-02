@@ -8,7 +8,7 @@
 (require 'asoc)
 (require 'dash)
 
-(defvar knessy--log-level 3
+(defvar knessy--log-level 1
   "Takes values from 0 to 5. 5 means all logging.")
 
 (defvar knessy--debug t
@@ -17,7 +17,8 @@
 (defun knessy--log (level obj)
   (when (>= knessy--log-level level)
     (princ obj)
-    (princ "\n")))
+    (unless (stringp obj)
+      (princ "\n"))))
 
 (defcustom knessy-default-view-string "default"
   "String depicting default view for a resource-type."
@@ -224,12 +225,41 @@ in Knessy mode, else lists all existing buffers."
 ;; TODO: these should be set from the actual available resources,
 ;;   or from history, not like this
 
+(defcustom knessy-initial-context
+  ""
+  "Context at the first Knessy invocation. Leave blank to switch to current kubectl context."
+  :group 'knessy
+  :type 'string)
+
+(defcustom knessy-initial-namespace
+  "kube-system"
+  "Namespace at the first Knessy invocation."
+  :group 'knessy
+  :type 'string)
+
+(defcustom knessy-initial-resource-type
+  "pods"
+  "Resource type at the first Knessy invocation"
+  :group 'knessy
+  :type 'string)
+
 (defvar-local knessy--namespace
-  "default")
+  knessy-initial-namespace)
+
 (defvar-local knessy--context
-  "default")
+  (if (s-blank? knessy-initial-context)
+      ;; FIXME: change hardcoded path here
+      ;; FIXME: make it less low-level
+      (let ((buf (knessy--utils-make-buffer (generate-new-buffer-name (knessy--utils-kubectl-buffer-name "current-config" t t t)))))
+        (knessy--shell-exec "kubectl config current-context" buf)
+        (prog1
+            (with-current-buffer buf
+              (s-trim (buffer-string)))
+          (kill-buffer buf)))
+    knessy-initial-context))
+
 (defvar-local knessy--resource-type
-    "pods")
+    knessy-initial-resource-type)
 
 (defvar knessy--last-selected-namespace nil)
 (defvar knessy--last-selected-context nil)
@@ -327,9 +357,11 @@ in Knessy mode, else lists all existing buffers."
   (ht ('deployment 'rs)
       ('statefulset 'pod)
       ('daemonset 'pod)
-      ('rs 'pod)))
+      ('rs 'pod)
+      ;; should be in some special list
+      ('node 'pod)))
 
-;; TODO: add symbols from knessy--field-selectors-fields-ht
+;; TODO: it would be great to just pass some jsonpath like .spec.selector.matchLabels=labels or metadata.name=spec.nodeName for jumping to children and back
 
 (defvar knessy--resource-type-str->sym
   (ht ("deployments.apps" 'deployment)
@@ -341,12 +373,9 @@ in Knessy mode, else lists all existing buffers."
       ("replicasets.apps" 'rs)
       ("ReplicaSet" 'rs)
       ("pods" 'pod)
-      ("Pod" 'pod)))
-
-(defun knessy--resource-type-child (owner-resource-type)
-  (knessy--res)
-  (ht-get knessy--resource-type-children
-          (knessy--resource-type-str->sym owner-resource-type)))
+      ("Pod" 'pod)
+      ("nodes" 'node)
+      ("Node" 'node)))
 
 (defvar knessy--resource-type-sym->str-list
   (let ((res (ht)))
@@ -356,6 +385,11 @@ in Knessy mode, else lists all existing buffers."
         (unless (ht-contains? res sym)
           (ht-set res sym '()))
         (ht-update-with! res sym (lambda (l) (cons str l)) '())))))
+
+(defun knessy--resource-type-child (owner-resource-type)
+  (knessy--res)
+  (ht-get knessy--resource-type-children
+          (knessy--resource-type-str->sym owner-resource-type)))
 
 (defvar-local
     knessy--view
@@ -423,7 +457,6 @@ in Knessy mode, else lists all existing buffers."
   (asoc-put! my-alist 'orange 3)
   my-alist))
 
-;; TODO: write this
 (defun knessy--jump-children ()
   (interactive)
   (let* ((selected-id (tabulated-list-get-id))

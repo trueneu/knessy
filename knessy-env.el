@@ -172,8 +172,11 @@
 
 ;; TODO: add config here?
 (defun knessy--set-env-last-selected ()
-  (setq knessy--context knessy--last-selected-context)
-  (setq knessy--namespace knessy--last-selected-namespace)
-  (setq knessy--resource-type knessy--last-selected-resource-type))
+  (when knessy--last-selected-context
+    (setq knessy--context knessy--last-selected-context))
+  (when knessy--last-selected-namespace
+    (setq knessy--namespace knessy--last-selected-namespace))
+  (when knessy--last-selected-resource-type
+    (setq knessy--resource-type knessy--last-selected-resource-type)))
 
 (provide 'knessy-env)
