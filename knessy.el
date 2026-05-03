@@ -455,7 +455,8 @@ in Knessy mode, else lists all existing buffers."
   (asoc-put! my-alist 'apple 10)
   ;; Add new key
   (asoc-put! my-alist 'orange 3)
-  my-alist))
+  my-alist)
+ (asoc-zip '("spec.nodeName") '("blah")))
 
 (defun knessy--jump-children ()
   (interactive)
@@ -463,15 +464,20 @@ in Knessy mode, else lists all existing buffers."
          ;; TODO: extract all this functionality to functions working on "objects", don't cddr this shit
          (name (cddr selected-id))
          (obj (knessy--kubectl-get-object-parsed-sync name))
-         (owner-sym (ht-get knessy--resource-type-str->sym knessy--resource-type)))
+         (owner-sym (ht-get knessy--resource-type-str->sym knessy--resource-type))
+         (children-resource-type (knessy--child-resource-type knessy--resource-type)))
     (cond ((eq owner-sym 'node)
            ;; TODO: implement this!
-           (error "Not implemented!"))
+           (progn
+             (setq knessy--field-selectors (asoc-zip '("spec.nodeName") (list name)))
+             (setq knessy--resource-type children-resource-type)
+             (knessy--display2)))
+
           (t
            (if-let* ((spec (ht-get obj "spec")))
             (if-let* ((selector (ht-get spec "selector")))
                 (if-let* ((match-labels (ht-get selector "matchLabels")))
-                    (let ((children-resource-type (knessy--child-resource-type knessy--resource-type)))
+                    (progn
                       (setq knessy--label-selectors (ht->alist match-labels))
                       (setq knessy--resource-type children-resource-type)
                       (knessy--display2))
