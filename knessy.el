@@ -470,6 +470,7 @@ in Knessy mode, else lists all existing buffers."
            ;; TODO: implement this!
            (progn
              (setq knessy--field-selectors (asoc-zip '("spec.nodeName") (list name)))
+             (setq knessy--label-selectors nil)
              (setq knessy--resource-type children-resource-type)
              (knessy--display2)))
 
@@ -479,6 +480,7 @@ in Knessy mode, else lists all existing buffers."
                 (if-let* ((match-labels (ht-get selector "matchLabels")))
                     (progn
                       (setq knessy--label-selectors (ht->alist match-labels))
+                      (setq knessy--field-selectors nil)
                       (setq knessy--resource-type children-resource-type)
                       (knessy--display2))
 
@@ -520,6 +522,7 @@ in Knessy mode, else lists all existing buffers."
                        (owner-resource-type (knessy--kind->resource-type owner-kind)))
                   (setq knessy--resource-type owner-resource-type)
                   (setq knessy--field-selectors `(("metadata.name" . ,owner-name)))
+                  (setq knessy--label-selectors nil)
                   (call-interactively #'knessy--display2))
               (error "Object ownerReferences are empty"))
           (error "Object metadata has no ownerReferences"))
