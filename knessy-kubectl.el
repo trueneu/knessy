@@ -36,6 +36,18 @@
     (knessy--log 3 cmd)
     cmd))
 
+(defun knessy--kubectl-file-cmd (verb filename)
+  (let ((cmd (s-concat
+              knessy-kubectl
+              (s-concat " --context " knessy--context)
+              (if (knessy--namespace-all? knessy--namespace)
+                  ""
+                (s-concat " -n " knessy--namespace))
+              " " verb " -f "
+              filename)))
+    (knessy--log 3 cmd)
+    cmd))
+
 (defun knessy--kubectl-get-contexts-cmd ()
   (let ((knessy--resource-type "get-contexts"))
     (knessy--kubectl-cmd "config" "name" t nil t t t)))
@@ -61,6 +73,14 @@
   (knessy--log 4 "called knessy--kubectl-describe-obj-cmd")
   (let ((knessy--resource-type (s-concat knessy--resource-type "/" name)))
     (knessy--kubectl-cmd "describe")))
+
+(defun knessy--kubectl-apply-file-cmd (filename)
+  (knessy--log 4 "called knessy--kubectl-apply-file-cmd")
+  (knessy--kubectl-file-cmd "apply" filename))
+
+(defun knessy--kubectl-delete-file-cmd (filename)
+  (knessy--log 4 "called knessy--kubectl-delete-file-cmd")
+  (knessy--kubectl-file-cmd "delete" filename))
 
 (comment
  (let ((knessy--context "k8s-local")
@@ -342,12 +362,17 @@
      buf)
     (knessy--kubectl-parse-json-buffer buf)))
 
-(defun knessy--kubectl-get-object-sync (name &optional fmt)
-  (let ((buf (knessy--utils-make-buffer (generate-new-buffer-name (knessy--utils-kubectl-buffer-name name)))))
-    (knessy--shell-exec
-     (knessy--kubectl-get-obj-cmd name fmt)
-     buf)
-    buf))
+;; (defun knessy--kubectl-get-object-sync (name &optional fmt)
+;;   (let ((buf (knessy--utils-make-buffer (generate-new-buffer-name (knessy--utils-kubectl-buffer-name name)))))
+;;     (knessy--shell-exec
+;;      (knessy--kubectl-get-obj-cmd name fmt)
+;;      buf)
+;;     buf))
+
+(defun knessy--kubectl-get-object-sync (name buf &optional fmt)
+  (knessy--shell-exec
+   (knessy--kubectl-get-obj-cmd name fmt)
+   buf))
 
 (defun knessy--kubectl-describe-object-sync (name)
   (let ((buf (knessy--utils-make-buffer (generate-new-buffer-name (knessy--utils-kubectl-buffer-name name)))))

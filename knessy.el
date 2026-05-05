@@ -426,14 +426,42 @@ in Knessy mode, else lists all existing buffers."
   (let* ((selected-id (tabulated-list-get-id))
          ;; TODO: extract all this functionality to functions working on "objects", don't cddr this shit
          (name (cddr selected-id))
-         (obj-buf (knessy--kubectl-get-object-sync name (if json? :json :yaml))))
+         ;; TODO: knessy--kubectl-get-object-sync should not create a buffer but take it as an arg instead
+         (obj-buf (knessy--kubectl-get-object-sync name (if json? :json :yaml)))
+         (filename (make-temp-file "knessy" nil (if json? ".json" ".yaml") (with-current-buffer obj-buf (buffer-string))))
+         (file-buf (find-file-noselect filename)))
+    ;; TODO: this should go
     (with-current-buffer obj-buf
+      (write-region (point-min) (point-max) filename))
+    (kill-buffer obj-buf)
+    ;; (with-current-buffer file-buf
+    ;;   (goto-char (point-min))
+    ;;   (if json?
+    ;;       (knessy-json-mode)
+    ;;     (knessy-yaml-mode)))
+
+    (display-buffer file-buf)))
+
+(defun knessy-edit (&optional json?)
+  (interactive "P")
+  (let* ((selected-id (tabulated-list-get-id))
+         ;; TODO: extract all this functionality to functions working on "objects", don't cddr this shit
+         (name (cddr selected-id))
+         (filename (make-temp-file "knessy" nil (if json? ".json" ".yaml")))
+         (current-env (knessy--env))
+         (file-buf (find-file-literally filename)))
+    ;; TODO: this should go
+    (with-current-buffer file-buf
+      (knessy--set-env current-env)
+      (knessy--kubectl-get-object-sync name file-buf (if json? :json :yaml))
       (goto-char (point-min))
+      (save-buffer)
       (if json?
           (knessy-json-mode)
         (knessy-yaml-mode)))
 
-    (display-buffer obj-buf)))
+
+    (display-buffer file-buf)))
 
 (defun knessy-describe ()
   (interactive "")
