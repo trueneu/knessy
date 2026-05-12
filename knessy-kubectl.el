@@ -36,7 +36,7 @@
     (knessy--log 3 cmd)
     cmd))
 
-(defun knessy--kubectl-file-cmd (verb filename)
+(defun knessy--kubectl-file-cmd (verb filename &optional dry-run)
   (let ((cmd (s-concat
               knessy-kubectl
               (s-concat " --context " knessy--context)
@@ -44,7 +44,10 @@
                   ""
                 (s-concat " -n " knessy--namespace))
               " " verb " -f "
-              filename)))
+              filename
+              (if dry-run
+                  " --dry-run=server"
+                ""))))
     (knessy--log 3 cmd)
     cmd))
 
@@ -77,6 +80,10 @@
 (defun knessy--kubectl-apply-file-cmd (filename)
   (knessy--log 4 "called knessy--kubectl-apply-file-cmd")
   (knessy--kubectl-file-cmd "apply" filename))
+
+(defun knessy--kubectl-validate-file-cmd (filename)
+  (knessy--log 4 "called knessy--kubectl-validate-file-cmd")
+  (knessy--kubectl-file-cmd "apply" filename t))
 
 (defun knessy--kubectl-delete-file-cmd (filename)
   (knessy--log 4 "called knessy--kubectl-delete-file-cmd")
@@ -380,6 +387,17 @@
      (knessy--kubectl-describe-obj-cmd name)
      buf)
     buf))
+
+(defun knessy--kubectl-apply-file-sync (buf filename)
+  (knessy--shell-exec
+   (knessy--kubectl-apply-file-cmd filename)
+   buf))
+
+(defun knessy--kubectl-validate-file-sync (buf filename)
+  (knessy--shell-exec
+   (knessy--kubectl-validate-file-cmd filename)
+   buf
+   t))
 
 (defun knessy--cache-labels-populate-async (ctx ns resource-type)
   (knessy--log 3 "In knessy--cache-labels-populate-async")

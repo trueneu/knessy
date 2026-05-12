@@ -421,46 +421,40 @@ in Knessy mode, else lists all existing buffers."
      ("f" "config-file" knessy--select-config-file)
      ("v" "view" knessy--select-view)])
 
-(defun knessy-edit (&optional json?)
-  (interactive "P")
-  (let* ((selected-id (tabulated-list-get-id))
-         ;; TODO: extract all this functionality to functions working on "objects", don't cddr this shit
-         (name (cddr selected-id))
-         ;; TODO: knessy--kubectl-get-object-sync should not create a buffer but take it as an arg instead
-         (obj-buf (knessy--kubectl-get-object-sync name (if json? :json :yaml)))
-         (filename (make-temp-file "knessy" nil (if json? ".json" ".yaml") (with-current-buffer obj-buf (buffer-string))))
-         (file-buf (find-file-noselect filename)))
-    ;; TODO: this should go
-    (with-current-buffer obj-buf
-      (write-region (point-min) (point-max) filename))
-    (kill-buffer obj-buf)
-    ;; (with-current-buffer file-buf
-    ;;   (goto-char (point-min))
-    ;;   (if json?
-    ;;       (knessy-json-mode)
-    ;;     (knessy-yaml-mode)))
-
-    (display-buffer file-buf)))
+(defcustom knessy-temp-file-dir (file-name-concat temporary-file-directory "knessy")
+  "Directory to put temporary Knessy files")
 
 (defun knessy-edit (&optional json?)
   (interactive "P")
   (let* ((selected-id (tabulated-list-get-id))
          ;; TODO: extract all this functionality to functions working on "objects", don't cddr this shit
          (name (cddr selected-id))
-         (filename (make-temp-file "knessy" nil (if json? ".json" ".yaml")))
+         (ns (car selected-id))
+         (rt (cadr selected-id))
          (current-env (knessy--env))
-         (file-buf (find-file-literally filename)))
-    ;; TODO: this should go
+         filename
+         file-buf)
+    (let* ((temporary-file-directory knessy-temp-file-dir))
+      (setq filename (make-temp-file
+                      (s-concat "knessy_"
+                                knessy--context "_"
+                                rt "_"
+                                (if ns (s-concat ns "_") "")
+                                name "_")
+
+                      nil (if json? ".json" ".yaml")))
+      (setq file-buf (find-file-literally filename)))
     (with-current-buffer file-buf
+      (setq buffer-file-coding-system 'prefer-utf-8-unix)
       (knessy--set-env current-env)
       (knessy--kubectl-get-object-sync name file-buf (if json? :json :yaml))
       (goto-char (point-min))
       (save-buffer)
       (if json?
           (knessy-json-mode)
-        (knessy-yaml-mode)))
-
-
+        (knessy-yaml-mode))
+      ;; FIXME: second time because mode change resets buffer-locals
+      (knessy--set-env current-env))
     (display-buffer file-buf)))
 
 (defun knessy-describe ()
@@ -1007,11 +1001,35 @@ Made so spamming refreshes doesn't result in 100 of kubectl calls.")
 ;; run kubectl apply -f file with namespace context config etc
 ;; reopen again if refused with error
 ;; close the buffer
+
+;; TODO: ask user to save if needed
 (defun knessy-apply ()
-  (interactive))
+  (interactive)
+  (let* ((filename (buffer-file-name))
+         (buf-apply (knessy--utils-make-buffer (generate-new-buffer-name (knessy--utils-kubectl-buffer-name
+                                                                          (s-concat "apply_" filename) t t t)))))
+    (when (knessy--validate)
+      (knessy--kubectl-apply-file-sync buf-apply filename)
+      (message "Applied!"))))
+
+(defun knessy--validate ()
+  (let* ((filename (buffer-file-name))
+         (buf-validate (knessy--utils-make-buffer (generate-new-buffer-name (knessy--utils-kubectl-buffer-name
+                                                                             (s-concat "validate_" filename) t t t))))
+         (exit-code (knessy--kubectl-validate-file-sync buf-validate filename)))
+    (if (not (= 0 exit-code))
+        (progn
+          (message (with-current-buffer buf-validate
+                     (buffer-string)))
+          nil)
+      t)))
 
 (defun knessy-close ()
-  (interactive))
+  (interactive)
+  (let* ((filename (buffer-file-name)))
+    (kill-buffer)
+    (delete-file filename)
+    (message "Canceled!")))
 
 (defvar knessy-yaml-mode-map
   (let ((map (make-sparse-keymap)))
@@ -1035,10 +1053,14 @@ Made so spamming refreshes doesn't result in 100 of kubectl calls.")
 (define-derived-mode knessy-json-mode json-ts-mode "Knessy-JSON"
   "Mode for Knessy buffers with JSON objects.")
 
+;; FIXME: my personal hacks
 (add-hook
  'knessy-mode-hook
  (lambda ()
-   (display-line-numbers-mode -1)))
+   (when display-line-numbers
+     (display-line-numbers-mode -1))
+   (when persp-mode
+     (persp-add-buffer (current-buffer)))))
 
 (comment
  (remove-hook
