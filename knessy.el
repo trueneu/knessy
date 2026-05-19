@@ -125,6 +125,9 @@ time of the last restart, or the amount of restarts."
 (transient-define-prefix knessy-kill ()
     "Show logs for the selected resource(s)."
     :value '("--cascade=background" "--grace-period=-1")
+    :incompatible '(("--grace-period=" "--now")
+                    ("--grace-period=" "--force")
+                    ("--now" "--force"))
     ["Options"
      (knessy-kill:--cascade)
      ("-f" "Force"       "--force")
@@ -163,7 +166,6 @@ time of the last restart, or the amount of restarts."
   (let* ((follow? (member "--follow" args))
          (all-containers? (member "--all-containers" args))
          (tail-lines (transient-arg-value "--tail=" args))
-         (use-labels? (member "--use-labels" args))
          (timestamps? (member "--timestamps" args))
          (prefix? (member "--prefix" args))
 
@@ -176,14 +178,12 @@ time of the last restart, or the amount of restarts."
     (with-current-buffer log-buf
       (setq buffer-file-coding-system 'prefer-utf-8-unix)
       (knessy--set-env current-env)
-      (if use-labels?
-          ;; TODO (pgu, 18.05.2026): remove parallel constant from here
-          (knessy--kubectl-log-labels-async knessy--label-selectors 10 log-buf log-buferr follow? tail-lines all-containers? prefix? nil timestamps?)
-        (dolist (id selected-ids)
+      (dolist (id selected-ids)
           ;; TODO: extract all this functionality to functions working on "objects", don't cddr this shit (or use destructuring -let)
-          (let* ((name (cddr id))
+          (let* ((ns (car id))
+                 (name (cddr id))
                  (rt (cadr id)))
-            (knessy--kubectl-log-object-async rt name log-buf log-buferr follow? tail-lines all-containers? prefix? nil timestamps? t 32))))
+            (knessy--kubectl-log-object-async ns rt name log-buf log-buferr follow? tail-lines all-containers? prefix? nil timestamps? t 32)))
       (knessy-log-mode)
       ;; FIXME: second time because mode change resets buffer-locals
       (knessy--set-env current-env))
@@ -627,6 +627,7 @@ in Knessy mode, else lists all existing buffers."
 
 
 ;; TODO (pgu, 19.05.2026): maybe do prefix via transient so no-prompt is obvious
+;; FIXME (pgu, 19.05.2026): doesn't work with *ALL* namespaces
 (defun knessy--kill (&optional args prefix)
   (interactive (list (transient-args 'knessy-kill) current-prefix-arg))
   (let* ((force? (member "--force" args))
@@ -638,11 +639,34 @@ in Knessy mode, else lists all existing buffers."
     ;; TODO (pgu, 18.05.2026): here, detect number of different resource types and bulk-delete them
     (if (or prefix (yes-or-no-p (s-concat "Killing " (s-join ", " (mapcar #'cddr selected-ids)) ", proceed? ")))
         (dolist (id selected-ids)
-          ;; TODO (pgu, 18.05.2026): destructuring?
-          (let* ((name (cddr id))
+          ;; TODO (pgu, 18.05.2026): destructuring? dash.el
+          (let* ((ns (car id))
+                 (name (cddr id))
                  (rt (cadr id)))
-            (knessy--kubectl-delete-object-async rt name kill-buf kill-buferr force? grace-period now?)))
+            (knessy--kubectl-delete-object-async ns rt name kill-buf kill-buferr force? grace-period now?)))
       (user-error "Aborted"))))
+
+
+;; TODO (pgu, 19.05.2026): extract to knessy-transient.el
+(defun transient-read-number (prompt initial-input history)
+  "Read a natural number (excluding zero) and return it as a string."
+  (transient--read-number-any prompt initial-input history))
+
+(defun transient--read-number-any (prompt initial-input history)
+  (save-match-data
+    (cl-block nil
+      (while t
+        (let ((str (read-from-minibuffer prompt initial-input nil nil history)))
+          (when (or (string-equal str "")
+                    (string-match-p "\\`\\(0\\|-?[1-9][0-9]*\\)\\'"
+                                    str))
+            (cl-return str)))
+        (message "Please enter an integer number.")
+        (sit-for 1)))))
+
+(comment
+ (string-match-p "\\`\\(0\\|-?[1-9][0-9]*\\)\\'"
+                                    "-123"))
 
 (comment
  (append (vector 1 2 3) nil)
@@ -875,13 +899,18 @@ in Knessy mode, else lists all existing buffers."
   (let ((regex (read-string "Regex: " knessy--regex)))
     ;; TODO: verify if regex is valid
     (setq knessy--regex regex))
+  ;; TODO (pgu, 19.05.2026): maybe remove repaint?
   (knessy--repaint))
+
 
 (defun knessy--toggle-regex-hide ()
   (interactive)
   (setq knessy--regex-hide (not knessy--regex-hide))
   (knessy--log 4 (format "Regex Hide is now %s" knessy--regex-hide))
+  (message "Regex filter hide is %s" (if knessy--regex-hide "on" "off"))
+  ;; TODO (pgu, 19.05.2026): maybe remove repaint?
   (knessy--repaint))
+
 
 (defun knessy--clear-filters ()
   (interactive)

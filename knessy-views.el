@@ -18,6 +18,7 @@
       ("NAMESPACE" 16)
       ("READY" 5)
       ("RDY" 5)
+      ("IP" 16)
       ("STATUS" 12)
       ("RESTARTS" 10)
       ("NODE" 25)

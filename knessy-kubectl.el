@@ -69,23 +69,21 @@
     (knessy--log 3 cmd)
     cmd))
 
-(defun knessy--kubectl-delete-object-cmd (resource-type name &optional force? grace-period now?)
+(defun knessy--kubectl-delete-object-cmd (ns resource-type name &optional force? grace-period now?)
   (let ((cmd (s-concat
               knessy-kubectl
               (s-concat " --context " knessy--context)
-              (if (knessy--namespace-all? knessy--namespace)
-                  ""
-                (s-concat " -n " knessy--namespace))
+              (s-concat " -n " ns)
               " delete "
               (s-concat resource-type "/" name " ")
               (if force?
-                  " --force"
+                  " --force --grace-period=0"
                 "")
-              (if grace-period
+              (if (and grace-period (not force?))
                   (s-concat " --grace-period=" grace-period)
                 "")
-              (if now?
-                  " --now"
+              (if (and now? (not force?))
+                  " --grace-period=1"
                 ""))))
 
     (knessy--log 3 cmd)
@@ -116,21 +114,16 @@
 (comment
  (not "abc"))
 
-(defun knessy--kubectl-log-cmd (&optional resource-type name follow? tail parallel labels all-containers? prefix? container timestamps?)
+(defun knessy--kubectl-log-cmd (ns resource-type name &optional follow? tail parallel labels all-containers? prefix? container timestamps?)
   (knessy--log 4 "called knessy--kubectl-log-cmd")
 
-  (let* ((use-labels? (and (not name) labels)) ;; it's either name, or labels, not both
-         (object (if use-labels? "" (s-concat resource-type "/" name))))
+  (let* ((object (s-concat resource-type "/" name))) ;; it's either name, or labels, not both
+
     (s-concat
      knessy-kubectl
      " --context " knessy--context
-     " -n " knessy--namespace
+     " -n " ns
      " logs " object
-     (if use-labels?
-         (s-concat
-          " -l "
-          (knessy--utils-alist->str-= labels))
-       "")
      (if follow?
          " -f"
        "")
@@ -263,7 +256,8 @@
 (defun knessy--kubectl-resource-types-list ()
   (let ((buf (knessy--utils-make-buffer (generate-new-buffer-name (knessy--utils-kubectl-buffer-name "resource-types" nil t t)))))
     (knessy--shell-exec
-     "kubectl api-resources --output name"
+     (s-concat knessy-kubectl
+               " api-resources --output name")
      buf)
     (knessy--utils-read-buffer buf)))
 
@@ -271,7 +265,8 @@
 (defun knessy--kubectl-resource-types-set ()
   (let ((buf (knessy--utils-make-buffer (generate-new-buffer-name (knessy--utils-kubectl-buffer-name "resource-types-set" nil t t)))))
     (knessy--shell-exec
-     "kubectl api-resources --output name"
+     (s-concat knessy-kubectl
+               " api-resources --output name")
      buf)
     (knessy--utils-set
      (knessy--utils-read-buffer buf))))
@@ -279,7 +274,8 @@
 (defun knessy--kubectl-resource-types-namespaced-set ()
   (let ((buf (knessy--utils-make-buffer (generate-new-buffer-name (knessy--utils-kubectl-buffer-name "resource-types-namespaced" nil t t)))))
     (knessy--shell-exec
-     "kubectl api-resources --output name --namespaced=true"
+     (s-concat knessy-kubectl
+               " api-resources --output name --namespaced=true")
      buf)
     (knessy--utils-set
      (knessy--utils-read-buffer buf))))
@@ -287,7 +283,8 @@
 (defun knessy--kubectl-resource-types-global-set ()
   (let ((buf (knessy--utils-make-buffer (generate-new-buffer-name (knessy--utils-kubectl-buffer-name "resource-types-global" nil t t)))))
     (knessy--shell-exec
-     "kubectl api-resources --output name --namespaced=false"
+     (s-concat knessy-kubectl
+               " api-resources --output name --namespaced=false")
      buf)
     (knessy--utils-set
      (knessy--utils-read-buffer buf))))
@@ -352,10 +349,14 @@
        buf
        buferr
        (lambda ()
+         (message "Refreshed namespaces for %s" ctx)
          (knessy--cache-set
           knessy--cache
           (list :namespaces ctx)
           (cons knessy-all-namespaces-string (knessy--utils-read-buffer buf))))))))
+
+(comment
+ (knessy--cache-resource-types-populate-async))
 
 (defun knessy--cache-resource-types-populate-async ()
   ;; TODO: this is a nightmare
@@ -380,50 +381,71 @@
                           (generate-new-buffer-name
                            (knessy--utils-kubectl-buffer-name "resource-types-global-cache" nil t t t)))))
       ;; TODO: the actual command should not live here
-      (knessy--shell-exec-async2
-       (concat
-        knessy-kubectl
-        " --context "
-        ctx
-        " api-resources --output name")
-       buf
-       buferr
+      ;; TODO (pgu, 19.05.2026): hack
+      (run-at-time
+       1
+       nil
        (lambda ()
-         (knessy--cache-set
-          knessy--cache
-          (list :resource-types ctx)
-          (knessy--utils-read-buffer buf))))
+         (knessy--shell-exec-async2
+          (concat
+           knessy-kubectl
+           " --context "
+           ctx
+           " api-resources --output name")
+          buf
+          buferr
+          (lambda ()
+            (message "Refreshed API resources for %s" ctx)
+            (knessy--cache-set
+             knessy--cache
+             (list :resource-types ctx)
+             (knessy--utils-read-buffer buf))))))
+
 
       ;; TODO: the actual command should not live here
-      (knessy--shell-exec-async2
-       (concat
-        knessy-kubectl
-        " --context "
-        ctx
-        " api-resources --namespaced=true --output name")
-       buf-namespaced
-       buferr-namespaced
+      (run-at-time
+       2
+       nil
        (lambda ()
-         (knessy--cache-set
-          knessy--cache
-          (list :resource-types-namespaced ctx)
-          (knessy--utils-set
-           (knessy--utils-read-buffer buf-namespaced)))))
+         (knessy--shell-exec-async2
+          (concat
+           knessy-kubectl
+           " --context "
+           ctx
+           " api-resources --namespaced=true --output name")
+          buf-namespaced
+          buferr-namespaced
+          (lambda ()
+            (message "Refreshed namespaced API resources for %s" ctx)
+            (knessy--cache-set
+             knessy--cache
+             (list :resource-types-namespaced ctx)
+             (knessy--utils-set
+              (knessy--utils-read-buffer buf-namespaced)))))))
+
       ;; TODO: the actual command should not live here
 
-      (knessy--shell-exec-async2
-       (concat
-        "kubectl --context "
-        ctx
-        " api-resources --namespaced=false --output name")
-       buf-global
-       buferr-global
+      (run-at-time
+       3
+       nil
        (lambda ()
-         (knessy--cache-set
-          knessy--cache
-          (list :resource-types-global ctx)
-          (knessy--utils-set
-           (knessy--utils-read-buffer buf-global))))))))
+         (knessy--shell-exec-async2
+          (concat
+           knessy-kubectl
+           " --context "
+           ctx
+           " api-resources --namespaced=false --output name")
+          buf-global
+          buferr-global
+          (lambda ()
+            (message "Refreshed global API resources for %s" ctx)
+            (knessy--cache-set
+             knessy--cache
+             (list :resource-types-global ctx)
+             (knessy--utils-set
+              (knessy--utils-read-buffer buf-global))))))))))
+
+
 
 (comment
  (let ((ctx "k8s-local")
@@ -450,14 +472,17 @@
         (buferr (knessy--utils-make-buffer (generate-new-buffer-name (knessy--utils-kubectl-buffer-name "context-cache" t t t t)))))
     ;; TODO: the actual command should not live here
     (knessy--shell-exec-async2
+     ;; TODO (pgu, 19.05.2026): hack to avoid Azure login galore
      (concat knessy-kubectl " config get-contexts --output name")
      buf
      buferr
      (lambda ()
+       (message "Refreshed available contexts")
        (knessy--cache-set
         knessy--cache
         '(:ctx)
         (knessy--utils-read-buffer buf))
+       ;; TODO (pgu, 19.05.2026): hack
        (knessy--cache-namespaces-populate-async)
        (knessy--cache-resource-types-populate-async)))))
 
@@ -487,9 +512,9 @@
 
 ;; (defun knessy--kubectl-log-sync ())
 
-(defun knessy--kubectl-log-object-async (resource-type name buf buferr follow? tail all-containers? prefix? container timestamps? knessy-prefix? knessy-prefix-width)
+(defun knessy--kubectl-log-object-async (ns resource-type name buf buferr follow? tail all-containers? prefix? container timestamps? knessy-prefix? knessy-prefix-width)
   (knessy--shell-exec-async3
-    (knessy--kubectl-log-cmd resource-type name follow? tail nil nil all-containers? prefix? container timestamps?)
+    (knessy--kubectl-log-cmd ns resource-type name follow? tail nil nil all-containers? prefix? container timestamps?)
     buf
     buferr
     (knessy--make-process-filter-logs buf name knessy-prefix? knessy-prefix-width)
@@ -503,9 +528,9 @@
     (knessy--make-process-filter-logs buf nil nil nil)
     (lambda ())))
 
-(defun knessy--kubectl-delete-object-async (resource-type name buf buferr force? grace-period now?)
+(defun knessy--kubectl-delete-object-async (ns resource-type name buf buferr force? grace-period now?)
   (knessy--shell-exec-async2
-    (knessy--kubectl-delete-object-cmd resource-type name force? grace-period now?)
+    (knessy--kubectl-delete-object-cmd ns resource-type name force? grace-period now?)
     buf
     buferr
     (lambda () (message "Object(s) deleted!"))))

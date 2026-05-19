@@ -94,7 +94,8 @@
   (with-environment-variables (("KUBECONFIG" knessy-kubeconfig))
     (let* ((process (make-process
                      :name "knessy-shell-exec"
-                     :command (list "/bin/bash" "-c" cmd)
+                     :command (list "/bin/bash" "-c"
+                                    cmd)
                      :buffer buf
                      :stderr buferr
                      ;; TODO: remove this leave default?
@@ -114,6 +115,14 @@
       (when skip-query-on-exit
         (set-process-query-on-exit-flag process nil))
       process)))
+
+(comment
+ (knessy--shell-exec-async2
+  "/home/pgu/bin/kubectl --context sg2-eks-p-01 api-resources --output name"
+  (get-buffer-create "test")
+  (get-buffer-create "testerr")
+  (lambda () (message "test finished"))))
+
 
 ;; (defun knessy--shell-exec-async (cmd buf callback)
 ;;   (let* ((process (start-process-shell-command "knessy-shell-exec" nil cmd)))
