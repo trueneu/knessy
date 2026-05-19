@@ -375,6 +375,27 @@ Specify empty hashtable if no post-processing is desired.
   (tabulated-list-print knessy--table-remember-pos)
   (setq knessy--table-remember-pos t))
 
+;; TODO (pgu, 15.05.2026): maybe this is a bad idea actually.
+(defun knessy--mark-tablist-entry (id name-column-num)
+  (let* ((entry (first (asoc-get tabulated-list-entries id nil)))
+         (name (aref entry name-column-num))
+         (propertized-name (propertize name 'face 'dired-marked)))
+    (aset entry name-column-num propertized-name)
+    (beginning-of-line)
+    (tabulated-list-print-entry id entry)
+    (tabulated-list-delete-entry)
+    (forward-line -1)))
+
+(defun knessy--unmark-tablist-entry (id name-column-num)
+  (let* ((entry (first (asoc-get tabulated-list-entries id nil)))
+         (name (aref entry name-column-num))
+         (depropertized-name (substring-no-properties name)))
+    (aset entry name-column-num depropertized-name)
+    (beginning-of-line)
+    (tabulated-list-print-entry id entry)
+    (tabulated-list-delete-entry)
+    (forward-line -1)))
+
 (comment
  (knessy--make-tablist '("NAME" "NAMESPACE") nil)
  (setq knessy--columns-max-width

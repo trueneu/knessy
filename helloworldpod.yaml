@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: hello-loop-pod
+  labels:
+    schlol: lol
+spec:
+  restartPolicy: Always
+  containers:
+  - name: hello-loop-container
+    image: alpine:latest
+    command: ["/bin/sh", "-c"]
+    args: ["while true; do echo 'hello world'; sleep 5; done"]

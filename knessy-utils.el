@@ -37,6 +37,23 @@ in-place, the old list reference does not remain valid."
     (dolist (entry l res)
       (ht-set res entry t))))
 
+(defun knessy--utils-set-intersection (ht1 ht2)
+  "Compute sets intersection between ht1 and ht2"
+  (interactive)
+  (let ((intersection '())
+        (smaller-set (if (< (ht-size ht1)
+                            (ht-size ht2))
+                         ht1
+                       ht2))
+        (larger-set (if (< (ht-size ht1)
+                           (ht-size ht2))
+                        ht2
+                      ht1)))
+    (dolist (key (ht-keys smaller-set) intersection)
+      (when (ht-contains? larger-set key)
+        (push key intersection)))
+    intersection))
+
 (defun knessy--utils-ht-merge-duplicates-to-sets (&rest tables)
   (let ((res-table (ht)))
     (dolist (table tables res-table)
@@ -71,7 +88,8 @@ in-place, the old list reference does not remain valid."
     (with-current-buffer buf
       (goto-char (point-min))
       (while (not (eobp))
-        (let ((context (s-trim (thing-at-point 'line))))
+        (when-let* ((thing (thing-at-point 'line))
+                    (context (s-trim thing)))
           (push context new-cache))
         (forward-line 1))
       (unless no-kill

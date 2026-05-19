@@ -58,7 +58,12 @@
   :type 'string
   :group 'knessy)
 
-(defcustom knessy-kubectl "/usr/bin/kubectl"
+;; (defcustom knessy-kubectl "/usr/bin/kubectl"
+;;   "Kubectl path. Override to use a nigthly build or a wrapper script."
+;;   :type 'string
+;;   :group 'knessy)
+
+(defcustom knessy-kubectl "/home/pgu/bin/kubectl"
   "Kubectl path. Override to use a nigthly build or a wrapper script."
   :type 'string
   :group 'knessy)
@@ -95,10 +100,104 @@ time of the last restart, or the amount of restarts."
   (let ((env (knessy--env-ring-read-forward)))
     (knessy--set-env env)))
 
+(transient-define-prefix knessy-log ()
+    "Show logs for the selected resource(s)."
+    :value '("--tail=100" "--follow")
+    ["Options"
+     ("-f" "Follow logs"          "--follow")
+     ("-a" "All containers"       "--all-containers")
+     ("-t" "Tail (lines)"         "--tail="     :reader transient-read-number-N+)
+     ("-l" "Use labels"           "--use-labels")
+     ("-p" "Print prefix"         "--prefix")
+     ("-m" "Print timestamps"     "--timestamps")]
+    ["Actions"
+     ("l" "Display logs" knessy--logs)])
+
+(transient-define-argument knessy-kill:--cascade ()
+  :description "Cascade strategy"
+  :class 'transient-option
+  :key "-s"
+  :argument "--cascade="
+  :choices '("background" "orphan" "foreground")
+  :always-read t
+  :allow-empty nil)
+
+(transient-define-prefix knessy-kill ()
+    "Show logs for the selected resource(s)."
+    :value '("--cascade=background" "--grace-period=-1")
+    ["Options"
+     (knessy-kill:--cascade)
+     ("-f" "Force"       "--force")
+     ("-g" "Grace period" "--grace-period=" :reader transient-read-number)
+     ("-n" "Now" "--now")]
+    ["Actions"
+     ("k" "Kill resources" knessy--kill)])
+
+(defun knessy--do-every-item-in-region (f)
+  (let ((end (region-end)))
+       (save-excursion
+         (goto-char (region-beginning))
+         (beginning-of-line)
+         (while (< (point) end)
+           (when-let* ((id (tabulated-list-get-id)))
+             (funcall f id))
+           (forward-line 1)))
+       (deactivate-mark)))
+
+(defun knessy--ids ()
+  "IDs of objects to work on"
+  (let* ((marked-and-visible (knessy--marked-and-visible))
+         selected-ids)
+    (if (use-region-p)
+        (knessy--do-every-item-in-region (lambda (id)
+                                           (push id selected-ids)))
+      (if marked-and-visible
+          (setq selected-ids marked-and-visible)
+        (setq selected-ids (list (tabulated-list-get-id)))))
+    selected-ids))
+
+;; TODO (pgu, 19.05.2026): introduce additional parsing for --all-containers + timestamps
+(defun knessy--logs (&optional args)
+  "View logs of selected resources"
+  (interactive (list (transient-args 'knessy-log)))
+  (let* ((follow? (member "--follow" args))
+         (all-containers? (member "--all-containers" args))
+         (tail-lines (transient-arg-value "--tail=" args))
+         (use-labels? (member "--use-labels" args))
+         (timestamps? (member "--timestamps" args))
+         (prefix? (member "--prefix" args))
+
+         (selected-ids (knessy--ids))
+
+         (current-env (knessy--env))
+         (log-buf (knessy--utils-make-buffer (generate-new-buffer-name (knessy--utils-kubectl-buffer-name "log"))))
+         (log-buferr (knessy--utils-make-buffer (generate-new-buffer-name (knessy--utils-kubectl-buffer-name "log" nil nil nil t)))))
+
+    (with-current-buffer log-buf
+      (setq buffer-file-coding-system 'prefer-utf-8-unix)
+      (knessy--set-env current-env)
+      (if use-labels?
+          ;; TODO (pgu, 18.05.2026): remove parallel constant from here
+          (knessy--kubectl-log-labels-async knessy--label-selectors 10 log-buf log-buferr follow? tail-lines all-containers? prefix? nil timestamps?)
+        (dolist (id selected-ids)
+          ;; TODO: extract all this functionality to functions working on "objects", don't cddr this shit (or use destructuring -let)
+          (let* ((name (cddr id))
+                 (rt (cadr id)))
+            (knessy--kubectl-log-object-async rt name log-buf log-buferr follow? tail-lines all-containers? prefix? nil timestamps? t 32))))
+      (knessy-log-mode)
+      ;; FIXME: second time because mode change resets buffer-locals
+      (knessy--set-env current-env))
+    (display-buffer log-buf)))
+
+
 (defvar knessy-mode-map
   (let ((map (make-sparse-keymap)))
     (define-key map (kbd "c") 'knessy-config)
     (define-key map (kbd "d") 'knessy-describe)
+    ;; TODO (pgu, 15.05.2026): should go
+    (define-key map (kbd "p") 'knessy-print-marked)
+    (define-key map (kbd "k") 'knessy-kill)
+    (define-key map (kbd "l") 'knessy-log)
     (define-key map (kbd "m") 'knessy-mark)
     (define-key map (kbd "u") 'knessy-unmark)
     (define-key map (kbd "M") 'knessy-mark-all)
@@ -174,12 +273,22 @@ in Knessy mode, else lists all existing buffers."
 ;; TODO: maybe optimise mark repainting by changing the entry directly
 (defun knessy-mark ()
   (interactive)
-  (ht-set
-   knessy--marked
-   (tabulated-list-get-id)
-   t)
-  (knessy--repaint)
-  (forward-line))
+  (let* ((name-column-num (cl-position-if (lambda (x) (s-equals? "NAME" (first x)))
+                                          tabulated-list-format)))
+    (if (use-region-p)
+        (knessy--do-every-item-in-region
+         (lambda (id)
+           (ht-set knessy--marked id t)
+           (knessy--mark-tablist-entry id name-column-num)))
+      (ht-set
+       knessy--marked
+       (tabulated-list-get-id)
+       t)
+      ;; (knessy--repaint)
+      ;; TODO (pgu, 15.05.2026): maybe this is a bad idea.
+      (knessy--mark-tablist-entry (tabulated-list-get-id) name-column-num)
+      (forward-line))))
+
 
 (defun knessy-mark-all ()
   (interactive)
@@ -192,12 +301,17 @@ in Knessy mode, else lists all existing buffers."
 
 (defun knessy-unmark ()
   (interactive)
-  (ht-set
-   knessy--marked
-   (tabulated-list-get-id)
-   nil)
-  (knessy--repaint)
-  (forward-line))
+  (let* ((name-column-num (cl-position-if (lambda (x) (s-equals? "NAME" (first x)))
+                                          tabulated-list-format)))
+    (if (use-region-p)
+        (knessy--do-every-item-in-region (lambda (id)
+                                           (ht-set knessy--marked id nil)
+                                           (knessy--unmark-tablist-entry (tabulated-list-get-id) name-column-num)))
+      (ht-remove
+       knessy--marked
+       (tabulated-list-get-id))
+      (knessy--unmark-tablist-entry (tabulated-list-get-id) name-column-num)
+      (forward-line))))
 
 (defun knessy-unmark-all ()
   (interactive)
@@ -205,6 +319,19 @@ in Knessy mode, else lists all existing buffers."
     (let ((id (car entry)))
       (ht-remove knessy--marked id)))
   (knessy--repaint))
+
+(defun knessy-print-marked (&optional non-visible)
+  (interactive "P")
+  (dolist (id (ht-keys knessy--marked))
+    (when (and id
+               (ht-get knessy--marked id)
+               (if non-visible
+                   t
+                 (ht-contains? (asoc-get knessy--data :items) id)))
+      (let* ((ns (car id))
+             (rt (cadr id))
+             (name (cddr id)))
+        (message "%s: %s/%s" rt ns name)))))
 
 (defun knessy--contexts ()
   (knessy--cache-get
@@ -250,16 +377,28 @@ in Knessy mode, else lists all existing buffers."
   (if (s-blank? knessy-initial-context)
       ;; FIXME: change hardcoded path here
       ;; FIXME: make it less low-level
-      (let ((buf (knessy--utils-make-buffer (generate-new-buffer-name (knessy--utils-kubectl-buffer-name "current-config" t t t)))))
-        (knessy--shell-exec "kubectl config current-context" buf)
-        (prog1
-            (with-current-buffer buf
-              (s-trim (buffer-string)))
-          (kill-buffer buf)))
+      (let* ((buf (knessy--utils-make-buffer (generate-new-buffer-name (knessy--utils-kubectl-buffer-name "current-config" t t t))))
+             (res (if (eq 0 (knessy--shell-exec (s-concat knessy-kubectl " config current-context") buf))
+                      (with-current-buffer buf
+                        (s-trim (buffer-string)))
+                    "default")))
+        (kill-buffer buf)
+        res)
     knessy-initial-context))
+
+(comment
+ (let ((buf (knessy--utils-make-buffer (generate-new-buffer-name (knessy--utils-kubectl-buffer-name "current-config" t t t)))))
+      (knessy--shell-exec (s-concat knessy-kubectl " config current-context") buf)))
+
 
 (defvar-local knessy--resource-type
     knessy-initial-resource-type)
+
+(defun knessy--marked-and-visible ()
+  (knessy--utils-set-intersection
+   (asoc-get knessy--data :items)
+   knessy--marked))
+
 
 (defvar knessy--last-selected-namespace nil)
 (defvar knessy--last-selected-context nil)
@@ -280,6 +419,12 @@ in Knessy mode, else lists all existing buffers."
 (defun knessy--print-msg ()
   (interactive)
   (message "Hello world!"))
+
+(defun knessy--time-ms ()
+  (format-time-string "%Y-%m-%d %H:%M:%S.%3N"))
+
+(comment
+ (knessy--print-time-ms))
 
 (defcustom knessy-reset-label-selectors-on-resource-type-change nil
   "Whether to reset label filters on resource type change."
@@ -311,17 +456,22 @@ in Knessy mode, else lists all existing buffers."
   :group 'knessy
   :type 'boolean)
 
-;; TODO: *all*?.. contexts
-(defun knessy--select-context ()
-  (interactive)
-  (setq knessy--context
-        (completing-read "Context: "
-                         (knessy--contexts)))
+(defun knessy--set-context (ctx)
+  (setq knessy--context ctx)
   (setq knessy--last-selected-context knessy--context)
   (when knessy-reset-label-selectors-on-context-change
     (setq knessy--label-selectors '()))
   (when knessy-reset-field-selectors-on-context-change
     (setq knessy--field-selectors '())))
+
+;; TODO: *all*?.. contexts
+(defun knessy--select-context ()
+  (interactive)
+  (when-let* ((new-ctx (completing-read "Context: "
+                                        (knessy--contexts))))
+    (knessy--set-context new-ctx)))
+
+(defun knessy--set-namespace (ns))
 
 (defun knessy--select-namespace ()
   (interactive)
@@ -335,14 +485,8 @@ in Knessy mode, else lists all existing buffers."
   (when knessy-reset-field-selectors-on-namespace-change
     (setq knessy--field-selectors '())))
 
-;; TODO: *all*!
-;; TODO: reset labels and fields on resource type, ns, ctx change? make it configurable?
-;; TODO: maybe also reset the regex filter
-(defun knessy--select-resource-type ()
-  (interactive)
-  (setq knessy--resource-type
-        (completing-read "Kind: "
-                         (knessy--resource-types)))
+(defun knessy--set-resource-type (resource-type)
+  (setq knessy--resource-type resource-type)
   (setq knessy--view
         (or (ht-get knessy--last-selected-view knessy--resource-type nil)
             (asoc-get knessy-default-view-alist knessy--resource-type knessy-default-view-string)))
@@ -352,6 +496,15 @@ in Knessy mode, else lists all existing buffers."
     (setq knessy--label-selectors '()))
   (when knessy-reset-field-selectors-on-resource-type-change
     (setq knessy--field-selectors '())))
+
+;; TODO: *all*!
+;; TODO: reset labels and fields on resource type, ns, ctx change? make it configurable?
+;; TODO: maybe also reset the regex filter
+(defun knessy--select-resource-type ()
+  (interactive)
+  (when-let* ((new-rt (completing-read "Kind: "
+                                       (knessy--resource-types))))
+    (knessy--set-resource-type new-rt)))
 
 (defvar knessy--resource-type-children
   (ht ('deployment 'rs)
@@ -401,16 +554,19 @@ in Knessy mode, else lists all existing buffers."
     knessy--table-remember-pos
     t)
 
+(defun knessy--set-view (resource-type view)
+  (setq knessy--view view)
+  (ht-set knessy--last-selected-view resource-type view)
+  (setq knessy--table-remember-pos nil))
+
 (defun knessy--select-view ()
   (interactive)
-  (setq knessy--view
-        (completing-read
-         "View: "
-         (ht-get knessy--views-by-resource-type knessy--resource-type (list knessy-default-view-string))
-         nil
-         t))
-  (ht-set knessy--last-selected-view knessy--resource-type knessy--view)
-  (setq knessy--table-remember-pos nil))
+  (when-let* ((new-view (completing-read
+                         "View: "
+                         (ht-get knessy--views-by-resource-type knessy--resource-type (list knessy-default-view-string))
+                         nil
+                         t)))
+    (knessy--set-view knessy--resource-type new-view)))
 
 (transient-define-prefix
   knessy-config () "doc string"
@@ -441,8 +597,8 @@ in Knessy mode, else lists all existing buffers."
                                 rt "_"
                                 (if ns (s-concat ns "_") "")
                                 name "_")
-
-                      nil (if json? ".json" ".yaml")))
+                      nil
+                      (if json? ".json" ".yaml")))
       (setq file-buf (find-file-literally filename)))
     (with-current-buffer file-buf
       (setq buffer-file-coding-system 'prefer-utf-8-unix)
@@ -468,6 +624,26 @@ in Knessy mode, else lists all existing buffers."
       (read-only-mode))
     (display-buffer obj-buf)))
 
+
+
+;; TODO (pgu, 19.05.2026): maybe do prefix via transient so no-prompt is obvious
+(defun knessy--kill (&optional args prefix)
+  (interactive (list (transient-args 'knessy-kill) current-prefix-arg))
+  (let* ((force? (member "--force" args))
+         (grace-period (transient-arg-value "--grace-period=" args))
+         (now? (member "--now" args))
+         (selected-ids (knessy--ids))
+         (kill-buf (knessy--utils-make-buffer (generate-new-buffer-name (knessy--utils-kubectl-buffer-name "kill"))))
+         (kill-buferr (knessy--utils-make-buffer (generate-new-buffer-name (knessy--utils-kubectl-buffer-name "kill" nil nil nil t)))))
+    ;; TODO (pgu, 18.05.2026): here, detect number of different resource types and bulk-delete them
+    (if (or prefix (yes-or-no-p (s-concat "Killing " (s-join ", " (mapcar #'cddr selected-ids)) ", proceed? ")))
+        (dolist (id selected-ids)
+          ;; TODO (pgu, 18.05.2026): destructuring?
+          (let* ((name (cddr id))
+                 (rt (cadr id)))
+            (knessy--kubectl-delete-object-async rt name kill-buf kill-buferr force? grace-period now?)))
+      (user-error "Aborted"))))
+
 (comment
  (append (vector 1 2 3) nil)
  (asoc)
@@ -491,9 +667,10 @@ in Knessy mode, else lists all existing buffers."
     (cond ((eq owner-sym 'node)
            ;; TODO: implement this!
            (progn
+             ;; (setq knessy--resource-type children-resource-type)
+             (knessy--set-resource-type children-resource-type)
              (setq knessy--field-selectors (asoc-zip '("spec.nodeName") (list name)))
              (setq knessy--label-selectors nil)
-             (setq knessy--resource-type children-resource-type)
              (knessy--display2)))
 
           (t
@@ -501,9 +678,9 @@ in Knessy mode, else lists all existing buffers."
             (if-let* ((selector (ht-get spec "selector")))
                 (if-let* ((match-labels (ht-get selector "matchLabels")))
                     (progn
+                      (knessy--set-resource-type children-resource-type)
                       (setq knessy--label-selectors (ht->alist match-labels))
                       (setq knessy--field-selectors nil)
-                      (setq knessy--resource-type children-resource-type)
                       (knessy--display2))
 
                   (error "Object selector has no matchLabels"))
@@ -542,7 +719,8 @@ in Knessy mode, else lists all existing buffers."
                        (owner-name (ht-get owner-ref "name"))
                        (owner-kind (ht-get owner-ref "kind"))
                        (owner-resource-type (knessy--kind->resource-type owner-kind)))
-                  (setq knessy--resource-type owner-resource-type)
+                  ;; (setq knessy--resource-type owner-resource-type)
+                  (knessy--set-resource-type owner-resource-type)
                   (setq knessy--field-selectors `(("metadata.name" . ,owner-name)))
                   (setq knessy--label-selectors nil)
                   (call-interactively #'knessy--display2))
@@ -652,7 +830,6 @@ in Knessy mode, else lists all existing buffers."
 (defun knessy--resource-type-global? (resource-type)
   (not (knessy--resource-type-namespaced? resource-type)))
 
-;; TODO: make it actually filter in kubectl commands
 (defun knessy--filter-label ()
   (interactive)
   (let ((current-label nil)
@@ -706,9 +883,15 @@ in Knessy mode, else lists all existing buffers."
   (knessy--log 4 (format "Regex Hide is now %s" knessy--regex-hide))
   (knessy--repaint))
 
+(defun knessy--clear-filters ()
+  (interactive)
+  (setq knessy--field-selectors '())
+  (setq knessy--label-selectors '()))
+
 (transient-define-prefix
   knessy-filter () "Filter"
   ["Filter"
+   ("c" "clear" knessy--clear-filters)
    ("l" "label" knessy--filter-label)
    ("f" "field" knessy--filter-field-selector)
    ("r" "regex" knessy--set-regex)
@@ -731,6 +914,7 @@ in Knessy mode, else lists all existing buffers."
   "Repaint (or rather re-render the table).
 BUF is buffer with the table, must be in Knessy mode.
 If omitted, use the current one (for synchronous calls)."
+
   (with-current-buffer (if buf buf (current-buffer))
     (let ((columns (-> knessy--data (asoc-get :headers) (asoc-get :static)))
           (rename (-> knessy--data (asoc-get :headers) (asoc-get :rename)))
@@ -949,11 +1133,14 @@ Made so spamming refreshes doesn't result in 100 of kubectl calls.")
   "The list of Knessy buffers.")
 
 
-;; TODO: add knessy-rename and knessy-list-buffers and maybe knessy-prev-next
+;; TODO: add knessy-rename and knessy-list-buffers and maybe knessy-prev-next (how to maintain order?)
 (defun knessy-new ()
   "Create new knessy buffer."
   (interactive)
   (let* ((knessy-buffer (knessy-get-new-buffer)))
+    ;; TODO (pgu, 17.05.2026): huh, should there be a setup step that's run only once or something?
+    (make-directory knessy-temp-file-dir t)
+    (knessy--set-resource-type knessy--resource-type)
     ;; FIXME: is it wrong use of nconc there?
     (setq knessy-buffer-list (nconc knessy-buffer-list (list knessy-buffer)))
     (set-buffer knessy-buffer)
@@ -964,6 +1151,11 @@ Made so spamming refreshes doesn't result in 100 of kubectl calls.")
 (defun knessy ()
   (interactive)
   (knessy-mode))
+
+;; TODO (pgu, 17.05.2026): separate user-facing knessy--select-context,
+;; knessy--select-buffer and the likes into 2 parts: 1) user-facing one, with
+;; (completing-read) and all that; 2) internal one, that for instance resets the
+;; view when the resource type is changed
 
 (define-derived-mode knessy-mode tabulated-list-mode "Knessy"
   "Mode for Knessy buffers."
@@ -1008,9 +1200,57 @@ Made so spamming refreshes doesn't result in 100 of kubectl calls.")
   (let* ((filename (buffer-file-name))
          (buf-apply (knessy--utils-make-buffer (generate-new-buffer-name (knessy--utils-kubectl-buffer-name
                                                                           (s-concat "apply_" filename) t t t)))))
+    (when (buffer-modified-p)
+      (if (y-or-n-p "Buffer was modified. Save and continue? ")
+          (save-buffer)
+        (user-error "Aborted")))
     (when (knessy--validate)
       (knessy--kubectl-apply-file-sync buf-apply filename)
+      ;; TODO (pgu, 17.05.2026): add toggles for deleting/killing buffer behaviour
+      (kill-buffer)
+      (delete-file filename)
       (message "Applied!"))))
+
+(defun knessy-apply-arbitrary ()
+  (interactive)
+  (let* ((knessy--context knessy--last-selected-context)
+         (knessy--namespace knessy--last-selected-namespace)
+         ;; FIXME (pgu, 18.05.2026): this one is just for the buffer naming really
+         (knessy--resource-type knessy--last-selected-resource-type)
+         (filename (buffer-file-name))
+         (buf-apply (knessy--utils-make-buffer (generate-new-buffer-name (knessy--utils-kubectl-buffer-name
+                                                                          (s-concat "apply_" filename) t t t)))))
+    (when (buffer-modified-p)
+      (if (y-or-n-p "Buffer was modified. Save and continue? ")
+          (save-buffer)
+        (user-error "Aborted")))
+    (if (y-or-n-p (format "Applying to %s, namespace %s, continue? " knessy--context knessy--namespace))
+        (save-buffer)
+        (user-error "Aborted"))
+    (when (knessy--validate)
+      (knessy--kubectl-apply-file-sync buf-apply filename)
+      ;; TODO (pgu, 17.05.2026): add toggles for deleting/killing buffer behaviour
+      (message "Applied!"))))
+
+(defun knessy-delete-arbitrary ()
+  (interactive)
+  (let* ((knessy--context knessy--last-selected-context)
+         (knessy--namespace knessy--last-selected-namespace)
+         ;; FIXME (pgu, 18.05.2026): this one is just for the buffer naming really
+         (knessy--resource-type knessy--last-selected-resource-type)
+         (filename (buffer-file-name))
+         (buf-delete (knessy--utils-make-buffer (generate-new-buffer-name (knessy--utils-kubectl-buffer-name
+                                                                           (s-concat "delete_" filename) t t t)))))
+    (when (buffer-modified-p)
+      (if (y-or-n-p "Buffer was modified. Save and continue? ")
+          (save-buffer)
+        (user-error "Aborted")))
+    (if (y-or-n-p (format "Deleting from %s, namespace %s, continue? " knessy--context knessy--namespace))
+        (save-buffer)
+        (user-error "Aborted"))
+    (when (knessy--validate)
+      (knessy--kubectl-delete-file-sync buf-delete filename)
+      (message "Deleted!"))))
 
 (defun knessy--validate ()
   (let* ((filename (buffer-file-name))
@@ -1045,6 +1285,17 @@ Made so spamming refreshes doesn't result in 100 of kubectl calls.")
     map)
   "Keymap for `knessy-json-mode'.")
 
+;; TODO (pgu, 18.05.2026): sentinel echoes error on exit
+(defun knessy-log-close ()
+  (interactive)
+  (kill-buffer))
+
+(defvar knessy-log-mode-map
+  (let ((map (make-sparse-keymap)))
+    (define-key map (kbd "q") 'knessy-log-close)
+    map)
+  "Keymap for `knessy-log-mode'.")
+
 ;; FIXME: no hooks run from yaml-ts-mode?.. keybindings are missing
 ;; also, are yaml-ts-mode and json-ts-mode standard and default now?
 (define-derived-mode knessy-yaml-mode yaml-ts-mode "Knessy-YAML"
@@ -1052,6 +1303,10 @@ Made so spamming refreshes doesn't result in 100 of kubectl calls.")
 
 (define-derived-mode knessy-json-mode json-ts-mode "Knessy-JSON"
   "Mode for Knessy buffers with JSON objects.")
+
+(define-derived-mode knessy-log-mode fundamental-mode "Knessy-Log"
+  "Mode for Knessy buffers with logs."
+  (read-only-mode))
 
 ;; FIXME: my personal hacks
 (add-hook

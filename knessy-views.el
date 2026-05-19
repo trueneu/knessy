@@ -16,9 +16,11 @@
 (defcustom knessy-column-widths
   (ht ("NAME" 32)
       ("NAMESPACE" 16)
+      ("READY" 5)
+      ("RDY" 5)
       ("STATUS" 12)
-      ("RESTARTS" 15)
-      ("NODE" 15)
+      ("RESTARTS" 10)
+      ("NODE" 25)
       ("CPU(r)" 20)
       ("MEM(r)" 20)
       ("CPU(l)" 20)
@@ -29,11 +31,9 @@
 
 ;; TODO: make all structures alists again?.. since they're faster than ht, except items collection maybe
 
-;; TODO: make a resource-type -> view table, allow multiple views per resource-type
-
 ;; FIXME: this won't get updated when knessy-default-view-string is updated...
 (defcustom knessy-default-view-alist
-  `(("pods" . "default"))
+  `(("pods" . "concise"))
   "ALIST of resource resource-type to the view name that's applied by default")
 
 (defvar knessy--views-last-selected (ht)
@@ -121,7 +121,11 @@
                                                                  mem-usage-str
                                                                  "/"
                                                                  mem-lim-str
-                                                                 ")"))))))))
+                                                                 ")")))))))
+      ('("pods" . "concise")
+       `((:columns . ("NAME" "RDY" "STATUS" "RESTARTS" "IP" "NODE" "AGE"))
+         (:column-rename . ,(ht ("RDY" "READY")))
+         (:calls . (((:type . :get-wide)))))))
 
 
   "The variable defines different queries by resource type."
@@ -140,6 +144,7 @@
    0
    1))
 
+;; TODO (pgu, 17.05.2026): this should be recomputed every time views change
 (defvar knessy--views-by-resource-type
   (let ((res (ht)))
    (dolist (resource-type-view (ht-keys knessy-views))

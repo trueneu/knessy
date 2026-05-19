@@ -51,6 +51,46 @@
     (knessy--log 3 cmd)
     cmd))
 
+(defun knessy--kubectl-delete-cmd (filename &optional wait dry-run)
+  (let ((cmd (s-concat
+              knessy-kubectl
+              (s-concat " --context " knessy--context)
+              (if (knessy--namespace-all? knessy--namespace)
+                  ""
+                (s-concat " -n " knessy--namespace))
+              " delete -f "
+              filename
+              (if dry-run
+                  " --dry-run=server"
+                "")
+              (if wait
+                  " --wait=true"
+                " --wait=false"))))
+    (knessy--log 3 cmd)
+    cmd))
+
+(defun knessy--kubectl-delete-object-cmd (resource-type name &optional force? grace-period now?)
+  (let ((cmd (s-concat
+              knessy-kubectl
+              (s-concat " --context " knessy--context)
+              (if (knessy--namespace-all? knessy--namespace)
+                  ""
+                (s-concat " -n " knessy--namespace))
+              " delete "
+              (s-concat resource-type "/" name " ")
+              (if force?
+                  " --force"
+                "")
+              (if grace-period
+                  (s-concat " --grace-period=" grace-period)
+                "")
+              (if now?
+                  " --now"
+                ""))))
+
+    (knessy--log 3 cmd)
+    cmd))
+
 (defun knessy--kubectl-get-contexts-cmd ()
   (let ((knessy--resource-type "get-contexts"))
     (knessy--kubectl-cmd "config" "name" t nil t t t)))
@@ -63,6 +103,7 @@
   (knessy--log 4 "called knessy--kubectl-get-labels-cmd")
   (knessy--kubectl-cmd "get" "jsonpath='{range .items[*]}{.metadata.labels}{\"\\n\"}{end}'" nil t nil t t))
 
+;; TODO (pgu, 17.05.2026): include resource-type as explicit argument here, to support multiple resource-type views
 (defun knessy--kubectl-get-obj-cmd (name &optional fmt)
   (knessy--log 4 "called knessy--kubectl-get-obj-cmd")
   (let ((knessy--resource-type (s-concat knessy--resource-type "/" name)))
@@ -72,6 +113,70 @@
                                      ((eq fmt :yaml)
                                       "yaml")) nil nil nil t t)))
 
+(comment
+ (not "abc"))
+
+(defun knessy--kubectl-log-cmd (&optional resource-type name follow? tail parallel labels all-containers? prefix? container timestamps?)
+  (knessy--log 4 "called knessy--kubectl-log-cmd")
+
+  (let* ((use-labels? (and (not name) labels)) ;; it's either name, or labels, not both
+         (object (if use-labels? "" (s-concat resource-type "/" name))))
+    (s-concat
+     knessy-kubectl
+     " --context " knessy--context
+     " -n " knessy--namespace
+     " logs " object
+     (if use-labels?
+         (s-concat
+          " -l "
+          (knessy--utils-alist->str-= labels))
+       "")
+     (if follow?
+         " -f"
+       "")
+     (if parallel
+         (s-concat " --max-log-requests " (int-to-string parallel))
+       "")
+     (if prefix?
+         (s-concat " --prefix")
+       "")
+     (if all-containers?
+         " --all-containers"
+       (if container
+           (s-concat " -c " container)
+         ""))
+     (if tail
+         (s-concat " --tail " tail)
+       "")
+     (if timestamps?
+         (s-concat " --timestamps")
+       ""))))
+
+(comment
+ (knessy--kubectl-log-cmd "pods" "abc" t 50 5 nil t t nil t)
+ (let* ((buf (get-buffer-create "test1"))
+        (buferr (get-buffer-create "test1err"))
+        (knessy--context "k8s-local")
+        (knessy--namespace "default")
+        (knessy--resource-type "pods"))
+   (knessy--shell-exec-async3
+    (knessy--kubectl-log-cmd knessy--resource-type "hello-loop-pod" t 10 nil nil nil nil nil t)
+    buf
+    buferr
+    (knessy--make-process-filter-logs buf "blah" t)
+    (lambda () (message "callback called")))
+   (knessy--shell-exec-async3
+    (knessy--kubectl-log-cmd knessy--resource-type "hello-loop-pod2" t 10 nil nil nil nil nil t)
+    buf
+    buferr
+    (knessy--make-process-filter-logs buf "blah" t)
+    (lambda () (message "callback called")))
+   (with-current-buffer buf
+     (knessy-log-mode))))
+
+;; (defun knessy--kubectl-log)
+
+;; TODO (pgu, 17.05.2026): include resource-type as explicit argument here, to support multiple resource-type views
 (defun knessy--kubectl-describe-obj-cmd (name)
   (knessy--log 4 "called knessy--kubectl-describe-obj-cmd")
   (let ((knessy--resource-type (s-concat knessy--resource-type "/" name)))
@@ -87,7 +192,7 @@
 
 (defun knessy--kubectl-delete-file-cmd (filename)
   (knessy--log 4 "called knessy--kubectl-delete-file-cmd")
-  (knessy--kubectl-file-cmd "delete" filename))
+  (knessy--kubectl-delete-cmd filename nil))
 
 (comment
  (let ((knessy--context "k8s-local")
@@ -240,7 +345,8 @@
 
       (knessy--shell-exec-async2
        (concat
-        "kubectl --context "
+        knessy-kubectl
+        " --context "
         ctx
         " get namespaces --output custom-columns=NAME:.metadata.name --no-headers")
        buf
@@ -276,7 +382,8 @@
       ;; TODO: the actual command should not live here
       (knessy--shell-exec-async2
        (concat
-        "kubectl --context "
+        knessy-kubectl
+        " --context "
         ctx
         " api-resources --output name")
        buf
@@ -290,7 +397,8 @@
       ;; TODO: the actual command should not live here
       (knessy--shell-exec-async2
        (concat
-        "kubectl --context "
+        knessy-kubectl
+        " --context "
         ctx
         " api-resources --namespaced=true --output name")
        buf-namespaced
@@ -323,7 +431,8 @@
        (buferr-namespaced (get-buffer-create "knessy-debug-err")))
    (knessy--shell-exec-async2
     (concat
-     "kubectl --context "
+     knessy-kubectl
+     " --context "
      ctx
      " api-resources --namespaced=true --output name")
     buf-namespaced
@@ -341,7 +450,7 @@
         (buferr (knessy--utils-make-buffer (generate-new-buffer-name (knessy--utils-kubectl-buffer-name "context-cache" t t t t)))))
     ;; TODO: the actual command should not live here
     (knessy--shell-exec-async2
-     "kubectl config get-contexts --output name"
+     (concat knessy-kubectl " config get-contexts --output name")
      buf
      buferr
      (lambda ()
@@ -376,6 +485,31 @@
 ;;      buf)
 ;;     buf))
 
+;; (defun knessy--kubectl-log-sync ())
+
+(defun knessy--kubectl-log-object-async (resource-type name buf buferr follow? tail all-containers? prefix? container timestamps? knessy-prefix? knessy-prefix-width)
+  (knessy--shell-exec-async3
+    (knessy--kubectl-log-cmd resource-type name follow? tail nil nil all-containers? prefix? container timestamps?)
+    buf
+    buferr
+    (knessy--make-process-filter-logs buf name knessy-prefix? knessy-prefix-width)
+    (lambda ())))
+
+(defun knessy--kubectl-log-labels-async (labels parallel buf buferr follow? tail all-containers? prefix? container timestamps?)
+  (knessy--shell-exec-async3
+    (knessy--kubectl-log-cmd nil nil follow? tail parallel labels all-containers? prefix? container timestamps?)
+    buf
+    buferr
+    (knessy--make-process-filter-logs buf nil nil nil)
+    (lambda ())))
+
+(defun knessy--kubectl-delete-object-async (resource-type name buf buferr force? grace-period now?)
+  (knessy--shell-exec-async2
+    (knessy--kubectl-delete-object-cmd resource-type name force? grace-period now?)
+    buf
+    buferr
+    (lambda () (message "Object(s) deleted!"))))
+
 (defun knessy--kubectl-get-object-sync (name buf &optional fmt)
   (knessy--shell-exec
    (knessy--kubectl-get-obj-cmd name fmt)
@@ -391,6 +525,11 @@
 (defun knessy--kubectl-apply-file-sync (buf filename)
   (knessy--shell-exec
    (knessy--kubectl-apply-file-cmd filename)
+   buf))
+
+(defun knessy--kubectl-delete-file-sync (buf filename)
+  (knessy--shell-exec
+   (knessy--kubectl-delete-file-cmd filename)
    buf))
 
 (defun knessy--kubectl-validate-file-sync (buf filename)
