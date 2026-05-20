@@ -1296,46 +1296,42 @@ Made so spamming refreshes doesn't result in 100 of kubectl calls.")
       (delete-file filename)
       (message "Applied!"))))
 
-(defun knessy-apply-arbitrary ()
-  (interactive)
+(defun knessy--kubectl-file-sync-arbitrary (verb kubectl-fn prompt-fmt success-msg)
+  "Run KUBECTL-FN on the file backing the current buffer.
+VERB names the action in the kubectl buffer name (e.g. \"apply\").
+PROMPT-FMT is the confirmation prompt format with two %s slots for
+context and namespace."
   (let* ((knessy--context knessy--last-selected-context)
          (knessy--namespace knessy--last-selected-namespace)
          ;; FIXME (pgu, 18.05.2026): this one is just for the buffer naming really
          (knessy--resource-type knessy--last-selected-resource-type)
          (filename (buffer-file-name))
-         (buf-apply (knessy--utils-make-buffer (generate-new-buffer-name (knessy--utils-kubectl-buffer-name
-                                                                          (s-concat "apply_" filename) t t t)))))
+         (buf (knessy--utils-make-buffer
+               (generate-new-buffer-name
+                (knessy--utils-kubectl-buffer-name
+                 (s-concat verb "_" filename) t t t)))))
     (when (buffer-modified-p)
       (if (y-or-n-p "Buffer was modified. Save and continue? ")
           (save-buffer)
         (user-error "Aborted")))
-    (if (y-or-n-p (format "Applying to %s, namespace %s, continue? " knessy--context knessy--namespace))
-        (save-buffer)
-        (user-error "Aborted"))
+    (unless (y-or-n-p (format prompt-fmt knessy--context knessy--namespace))
+      (user-error "Aborted"))
     (when (knessy--validate)
-      (knessy--kubectl-apply-file-sync buf-apply filename)
+      (funcall kubectl-fn buf filename)
       ;; TODO (pgu, 17.05.2026): add toggles for deleting/killing buffer behaviour
-      (message "Applied!"))))
+      (message success-msg))))
+
+(defun knessy-apply-arbitrary ()
+  (interactive)
+  (knessy--kubectl-file-sync-arbitrary
+   "apply" #'knessy--kubectl-apply-file-sync
+   "Applying to %s, namespace %s, continue? " "Applied!"))
 
 (defun knessy-delete-arbitrary ()
   (interactive)
-  (let* ((knessy--context knessy--last-selected-context)
-         (knessy--namespace knessy--last-selected-namespace)
-         ;; FIXME (pgu, 18.05.2026): this one is just for the buffer naming really
-         (knessy--resource-type knessy--last-selected-resource-type)
-         (filename (buffer-file-name))
-         (buf-delete (knessy--utils-make-buffer (generate-new-buffer-name (knessy--utils-kubectl-buffer-name
-                                                                           (s-concat "delete_" filename) t t t)))))
-    (when (buffer-modified-p)
-      (if (y-or-n-p "Buffer was modified. Save and continue? ")
-          (save-buffer)
-        (user-error "Aborted")))
-    (if (y-or-n-p (format "Deleting from %s, namespace %s, continue? " knessy--context knessy--namespace))
-        (save-buffer)
-        (user-error "Aborted"))
-    (when (knessy--validate)
-      (knessy--kubectl-delete-file-sync buf-delete filename)
-      (message "Deleted!"))))
+  (knessy--kubectl-file-sync-arbitrary
+   "delete" #'knessy--kubectl-delete-file-sync
+   "Deleting from %s, namespace %s, continue? " "Deleted!"))
 
 (defun knessy--validate ()
   (let* ((filename (buffer-file-name))
