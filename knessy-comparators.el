@@ -12,8 +12,6 @@
        (knessy--convert-time-units-seconds x-time)
        (knessy--convert-time-units-seconds y-time)))))
 
-;; TODO: these comparators all look awfully alike... generalise them
-
 (defun knessy--comparator-make-restarts-count (column-num)
   (lambda (x y)
     "Returns t if x<y"
@@ -48,6 +46,8 @@
             (t                          ; if both are not fully ready
              (< x-rdy y-rdy))))))       ; compare by number of ready containers
 
+
+;; TODO: these comparators all look awfully alike... generalise them
 
 (defun knessy--comparator-make-cpu-usage (column-num)
   (lambda (x y)

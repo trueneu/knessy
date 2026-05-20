@@ -285,7 +285,7 @@ Specify empty hashtable if no post-processing is desired.
       ("Failed" 'knessy-status-failed)))
 
 (defun knessy--propertize-status (status)
-  (if-let ((face (ht-get knessy-faces status nil)))
+  (if-let* ((face (ht-get knessy-faces status nil)))
       (propertize status 'face face)
     status))
 

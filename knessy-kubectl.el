@@ -10,7 +10,7 @@
               (if omit-context?
                   ""
                 (s-concat " --context " knessy--context))
-              (if (or omit-namespace? (knessy--namespace-all? knessy--namespace))
+              (if (or omit-namespace? (knessy--namespace-all? knessy--namespace) (null knessy--namespace)) ; namespace may be nil if the object is not namespaced
                   ""
                 (s-concat " -n " knessy--namespace))
               " " verb " "  knessy--resource-type
@@ -102,9 +102,10 @@
   (knessy--kubectl-cmd "get" "jsonpath='{range .items[*]}{.metadata.labels}{\"\\n\"}{end}'" nil t nil t t))
 
 ;; TODO (pgu, 17.05.2026): include resource-type as explicit argument here, to support multiple resource-type views
-(defun knessy--kubectl-get-obj-cmd (name &optional fmt)
+(defun knessy--kubectl-get-obj-cmd (ns rt name &optional fmt)
   (knessy--log 4 "called knessy--kubectl-get-obj-cmd")
-  (let ((knessy--resource-type (s-concat knessy--resource-type "/" name)))
+  (let ((knessy--resource-type (s-concat rt "/" name))
+        (knessy--namespace ns))
     (knessy--kubectl-cmd "get" (cond ((or (eq fmt :json)
                                           (null fmt))
                                       "json")
@@ -170,9 +171,10 @@
 ;; (defun knessy--kubectl-log)
 
 ;; TODO (pgu, 17.05.2026): include resource-type as explicit argument here, to support multiple resource-type views
-(defun knessy--kubectl-describe-obj-cmd (name)
+(defun knessy--kubectl-describe-obj-cmd (ns rt name)
   (knessy--log 4 "called knessy--kubectl-describe-obj-cmd")
-  (let ((knessy--resource-type (s-concat knessy--resource-type "/" name)))
+  (let ((knessy--resource-type (s-concat rt "/" name))
+        (knessy--namespace ns))
     (knessy--kubectl-cmd "describe")))
 
 (defun knessy--kubectl-apply-file-cmd (filename)
@@ -262,6 +264,8 @@
     (knessy--utils-read-buffer buf)))
 
 ;; TODO: this definitely can be optimized away, the only difference is set vs list
+
+;; TODO (pgu, 20.05.2026): also, this should go: better make one call and parse in one go
 (defun knessy--kubectl-resource-types-set ()
   (let ((buf (knessy--utils-make-buffer (generate-new-buffer-name (knessy--utils-kubectl-buffer-name "resource-types-set" nil t t)))))
     (knessy--shell-exec
@@ -535,15 +539,15 @@
     buferr
     (lambda () (message "Object(s) deleted!"))))
 
-(defun knessy--kubectl-get-object-sync (name buf &optional fmt)
+(defun knessy--kubectl-get-object-sync (ns rt name buf &optional fmt)
   (knessy--shell-exec
-   (knessy--kubectl-get-obj-cmd name fmt)
+   (knessy--kubectl-get-obj-cmd ns rt name fmt)
    buf))
 
-(defun knessy--kubectl-describe-object-sync (name)
+(defun knessy--kubectl-describe-object-sync (ns rt name)
   (let ((buf (knessy--utils-make-buffer (generate-new-buffer-name (knessy--utils-kubectl-buffer-name name)))))
     (knessy--shell-exec
-     (knessy--kubectl-describe-obj-cmd name)
+     (knessy--kubectl-describe-obj-cmd ns rt name)
      buf)
     buf))
 

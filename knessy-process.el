@@ -90,6 +90,7 @@
   (dolist (elt extension orig)
     (push elt orig)))
 
+;; TODO (pgu, 20.05.2026): move everything to knessy--shell-exec-async3
 (defun knessy--shell-exec-async2 (cmd buf buferr callback)
   (with-environment-variables (("KUBECONFIG" knessy-kubeconfig))
     (let* ((process (make-process

@@ -603,7 +603,7 @@ in Knessy mode, else lists all existing buffers."
     (with-current-buffer file-buf
       (setq buffer-file-coding-system 'prefer-utf-8-unix)
       (knessy--set-env current-env)
-      (knessy--kubectl-get-object-sync name file-buf (if json? :json :yaml))
+      (knessy--kubectl-get-object-sync ns rt name file-buf (if json? :json :yaml))
       (goto-char (point-min))
       (save-buffer)
       (if json?
@@ -617,14 +617,14 @@ in Knessy mode, else lists all existing buffers."
   (interactive "")
   (let* ((selected-id (tabulated-list-get-id))
          ;; TODO: extract all this functionality to functions working on "objects", don't cddr this shit
+         (ns (car selected-id))
          (name (cddr selected-id))
-         (obj-buf (knessy--kubectl-describe-object-sync name)))
+         (rt (cadr selected-id))
+         (obj-buf (knessy--kubectl-describe-object-sync ns rt name)))
     (with-current-buffer obj-buf
-      (text-mode)
-      (read-only-mode))
+      (knessy-describe-mode)
+      (goto-char (point-min)))
     (display-buffer obj-buf)))
-
-
 
 ;; TODO (pgu, 19.05.2026): maybe do prefix via transient so no-prompt is obvious
 ;; FIXME (pgu, 19.05.2026): doesn't work with *ALL* namespaces
@@ -1319,11 +1319,21 @@ Made so spamming refreshes doesn't result in 100 of kubectl calls.")
   (interactive)
   (kill-buffer))
 
+(defun knessy-describe-close ()
+  (interactive)
+  (kill-buffer))
+
 (defvar knessy-log-mode-map
   (let ((map (make-sparse-keymap)))
     (define-key map (kbd "q") 'knessy-log-close)
     map)
   "Keymap for `knessy-log-mode'.")
+
+(defvar knessy-describe-mode-map
+  (let ((map (make-sparse-keymap)))
+    (define-key map (kbd "q") 'knessy-describe-close)
+    map)
+  "Keymap for `knessy-describe-mode'.")
 
 ;; FIXME: no hooks run from yaml-ts-mode?.. keybindings are missing
 ;; also, are yaml-ts-mode and json-ts-mode standard and default now?
@@ -1335,6 +1345,10 @@ Made so spamming refreshes doesn't result in 100 of kubectl calls.")
 
 (define-derived-mode knessy-log-mode fundamental-mode "Knessy-Log"
   "Mode for Knessy buffers with logs."
+  (read-only-mode))
+
+(define-derived-mode knessy-describe-mode text-mode "Knessy-Desc"
+  "Mode for Knessy buffers with object descriptions."
   (read-only-mode))
 
 ;; FIXME: my personal hacks
