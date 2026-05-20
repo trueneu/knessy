@@ -175,7 +175,7 @@
   (knessy--log 4 "called knessy--kubectl-describe-obj-cmd")
   (let ((knessy--resource-type (s-concat rt "/" name))
         (knessy--namespace ns))
-    (knessy--kubectl-cmd "describe")))
+    (knessy--kubectl-cmd "describe" nil nil nil nil t t)))
 
 (defun knessy--kubectl-apply-file-cmd (filename)
   (knessy--log 4 "called knessy--kubectl-apply-file-cmd")
@@ -266,10 +266,12 @@
 ;; TODO: this definitely can be optimized away, the only difference is set vs list
 
 ;; TODO (pgu, 20.05.2026): also, this should go: better make one call and parse in one go
+;; TODO (pgu, 20.05.2026): no context passed?!
 (defun knessy--kubectl-resource-types-set ()
   (let ((buf (knessy--utils-make-buffer (generate-new-buffer-name (knessy--utils-kubectl-buffer-name "resource-types-set" nil t t)))))
     (knessy--shell-exec
      (s-concat knessy-kubectl
+               " --context " knessy--context
                " api-resources --output name")
      buf)
     (knessy--utils-set
@@ -279,6 +281,7 @@
   (let ((buf (knessy--utils-make-buffer (generate-new-buffer-name (knessy--utils-kubectl-buffer-name "resource-types-namespaced" nil t t)))))
     (knessy--shell-exec
      (s-concat knessy-kubectl
+               " --context " knessy--context
                " api-resources --output name --namespaced=true")
      buf)
     (knessy--utils-set
@@ -288,6 +291,7 @@
   (let ((buf (knessy--utils-make-buffer (generate-new-buffer-name (knessy--utils-kubectl-buffer-name "resource-types-global" nil t t)))))
     (knessy--shell-exec
      (s-concat knessy-kubectl
+               " --context " knessy--context
                " api-resources --output name --namespaced=false")
      buf)
     (knessy--utils-set
@@ -366,24 +370,25 @@
   ;; TODO: this is a nightmare
 
   (dolist (ctx (knessy--contexts))
-    (let ((buf (knessy--utils-make-buffer
-                (generate-new-buffer-name
-                 (knessy--utils-kubectl-buffer-name "resource-types-cache" nil t t))))
-          (buferr (knessy--utils-make-buffer
-                   (generate-new-buffer-name
-                    (knessy--utils-kubectl-buffer-name "resource-types-cache" nil t t t))))
-          (buf-namespaced (knessy--utils-make-buffer
+    (let* ((knessy--context ctx)
+           (buf (knessy--utils-make-buffer
+                 (generate-new-buffer-name
+                  (knessy--utils-kubectl-buffer-name "resource-types-cache" nil t t))))
+           (buferr (knessy--utils-make-buffer
+                    (generate-new-buffer-name
+                     (knessy--utils-kubectl-buffer-name "resource-types-cache" nil t t t))))
+           (buf-namespaced (knessy--utils-make-buffer
+                            (generate-new-buffer-name
+                             (knessy--utils-kubectl-buffer-name "resource-types-namespaced-cache" nil t t))))
+           (buferr-namespaced (knessy--utils-make-buffer
+                               (generate-new-buffer-name
+                                (knessy--utils-kubectl-buffer-name "resource-types-namespaced-cache" nil t t t))))
+           (buf-global (knessy--utils-make-buffer
+                        (generate-new-buffer-name
+                         (knessy--utils-kubectl-buffer-name "resource-types-global-cache" nil t t))))
+           (buferr-global (knessy--utils-make-buffer
                            (generate-new-buffer-name
-                            (knessy--utils-kubectl-buffer-name "resource-types-namespaced-cache" nil t t))))
-          (buferr-namespaced (knessy--utils-make-buffer
-                              (generate-new-buffer-name
-                               (knessy--utils-kubectl-buffer-name "resource-types-namespaced-cache" nil t t t))))
-          (buf-global (knessy--utils-make-buffer
-                       (generate-new-buffer-name
-                        (knessy--utils-kubectl-buffer-name "resource-types-global-cache" nil t t))))
-          (buferr-global (knessy--utils-make-buffer
-                          (generate-new-buffer-name
-                           (knessy--utils-kubectl-buffer-name "resource-types-global-cache" nil t t t)))))
+                            (knessy--utils-kubectl-buffer-name "resource-types-global-cache" nil t t t)))))
       ;; TODO: the actual command should not live here
       ;; TODO (pgu, 19.05.2026): hack
       (run-at-time
@@ -403,7 +408,8 @@
             (knessy--cache-set
              knessy--cache
              (list :resource-types ctx)
-             (knessy--utils-read-buffer buf))))))
+             ;; TODO (pgu, 20.05.2026): bring back the kill
+             (knessy--utils-read-buffer buf t))))))
 
 
       ;; TODO: the actual command should not live here
@@ -425,7 +431,7 @@
              knessy--cache
              (list :resource-types-namespaced ctx)
              (knessy--utils-set
-              (knessy--utils-read-buffer buf-namespaced)))))))
+              (knessy--utils-read-buffer buf-namespaced t)))))))
 
       ;; TODO: the actual command should not live here
 
@@ -447,7 +453,7 @@
              knessy--cache
              (list :resource-types-global ctx)
              (knessy--utils-set
-              (knessy--utils-read-buffer buf-global))))))))))
+              (knessy--utils-read-buffer buf-global t))))))))))
 
 
 
@@ -500,10 +506,10 @@
     (goto-char (point-min))
     (json-parse-buffer)))
 
-(defun knessy--kubectl-get-object-parsed-sync (name)
+(defun knessy--kubectl-get-object-parsed-sync (ns rt name)
   (let ((buf (knessy--utils-make-buffer (generate-new-buffer-name (knessy--utils-kubectl-buffer-name name)))))
     (knessy--shell-exec
-     (knessy--kubectl-get-obj-cmd name :json)
+     (knessy--kubectl-get-obj-cmd ns rt name :json)
      buf)
     (knessy--kubectl-parse-json-buffer buf)))
 
@@ -516,12 +522,14 @@
 
 ;; (defun knessy--kubectl-log-sync ())
 
+;; TODO (pgu, 20.05.2026): this has to be controllable from the transient
 (defun knessy--kubectl-log-object-async (ns resource-type name buf buferr follow? tail all-containers? prefix? container timestamps? knessy-prefix? knessy-prefix-width)
   (knessy--shell-exec-async3
-    (knessy--kubectl-log-cmd ns resource-type name follow? tail nil nil all-containers? prefix? container timestamps?)
+    (knessy--kubectl-log-cmd ns resource-type name follow? tail nil nil all-containers? t container t)
     buf
     buferr
-    (knessy--make-process-filter-logs buf name knessy-prefix? knessy-prefix-width)
+    (knessy--make-process-filter-logs2 buf t knessy-prefix-width t)
+    ;; (knessy--make-process-filter-logs buf name knessy-prefix? knessy-prefix-width)
     (lambda ())))
 
 (defun knessy--kubectl-log-labels-async (labels parallel buf buferr follow? tail all-containers? prefix? container timestamps?)

@@ -183,12 +183,11 @@ time of the last restart, or the amount of restarts."
           (let* ((ns (car id))
                  (name (cddr id))
                  (rt (cadr id)))
-            (knessy--kubectl-log-object-async ns rt name log-buf log-buferr follow? tail-lines all-containers? prefix? nil timestamps? t 32)))
+            (knessy--kubectl-log-object-async ns rt name log-buf log-buferr follow? tail-lines all-containers? prefix? nil timestamps? t 48)))
       (knessy-log-mode)
       ;; FIXME: second time because mode change resets buffer-locals
       (knessy--set-env current-env))
     (display-buffer log-buf)))
-
 
 (defvar knessy-mode-map
   (let ((map (make-sparse-keymap)))
@@ -471,19 +470,21 @@ in Knessy mode, else lists all existing buffers."
                                         (knessy--contexts))))
     (knessy--set-context new-ctx)))
 
-(defun knessy--set-namespace (ns))
-
-(defun knessy--select-namespace ()
-  (interactive)
+(defun knessy--set-namespace (ns)
   (setq knessy--namespace
-        (completing-read "Namespace: "
-                         (knessy--namespaces)))
+        ns)
   (knessy--namespace-current-all?-update)
   (setq knessy--last-selected-namespace knessy--namespace)
   (when knessy-reset-label-selectors-on-namespace-change
     (setq knessy--label-selectors '()))
   (when knessy-reset-field-selectors-on-namespace-change
     (setq knessy--field-selectors '())))
+
+(defun knessy--select-namespace ()
+  (interactive)
+  (let ((new-ns (completing-read "Namespace: "
+                                 (knessy--namespaces))))
+    (knessy--set-namespace new-ns)))
 
 (defun knessy--set-resource-type (resource-type)
   (setq knessy--resource-type resource-type)
@@ -508,6 +509,7 @@ in Knessy mode, else lists all existing buffers."
 
 (defvar knessy--resource-type-children
   (ht ('deployment 'rs)
+      ('argo-rollout 'rs)
       ('statefulset 'pod)
       ('daemonset 'pod)
       ('rs 'pod)
@@ -528,7 +530,9 @@ in Knessy mode, else lists all existing buffers."
       ("pods" 'pod)
       ("Pod" 'pod)
       ("nodes" 'node)
-      ("Node" 'node)))
+      ("Node" 'node)
+      ("rollouts.argoproj.io" 'argo-rollout)
+      ("Rollout" 'argo-rollout)))
 
 (defvar knessy--resource-type-sym->str-list
   (let ((res (ht)))
@@ -555,9 +559,11 @@ in Knessy mode, else lists all existing buffers."
     t)
 
 (defun knessy--set-view (resource-type view)
-  (setq knessy--view view)
-  (ht-set knessy--last-selected-view resource-type view)
-  (setq knessy--table-remember-pos nil))
+  (let ((old-view knessy--view))
+    (setq knessy--view view)
+    (ht-set knessy--last-selected-view resource-type view)
+    (unless (eq old-view view)
+      (setq knessy--table-remember-pos nil))))
 
 (defun knessy--select-view ()
   (interactive)
@@ -680,14 +686,68 @@ in Knessy mode, else lists all existing buffers."
   my-alist)
  (asoc-zip '("spec.nodeName") '("blah")))
 
+(defun knessy--jump-namespace ()
+  (interactive)
+  (let* ((selected-id (tabulated-list-get-id))
+         ;; TODO: extract all this functionality to functions working on "objects", don't cddr this shit
+         (ns (car selected-id)))
+    (when (null ns)
+      (user-error "This command should be used on a namespaced object."))
+    (knessy--set-namespace ns)
+    (setq knessy--field-selectors nil)
+    (setq knessy--label-selectors nil)
+    (knessy--display2)))
+
+(defun knessy--jump-node ()
+  (interactive)
+  (let* ((selected-id (tabulated-list-get-id))
+         ;; TODO: extract all this functionality to functions working on "objects", don't cddr this shit
+         (ns (car selected-id))
+         (name (cddr selected-id))
+         (rt (cadr selected-id))
+         (obj (knessy--kubectl-get-object-parsed-sync ns rt name))
+         (obj-sym (ht-get knessy--resource-type-str->sym rt)))
+    (when (not (eq obj-sym 'pod))
+      (user-error "This command should be used on a pod."))
+    (when-let* ((nodename (ht-get* obj "spec" "nodeName")))
+      (knessy--set-resource-type "nodes")
+      (setq knessy--field-selectors (asoc-zip '("metadata.name") (list nodename)))
+      (setq knessy--label-selectors nil)
+      (knessy--display2))))
+
+(defun knessy--jump-node-pods ()
+  (interactive)
+  (let* ((selected-id (tabulated-list-get-id))
+         ;; TODO: extract all this functionality to functions working on "objects", don't cddr this shit
+         (ns (car selected-id))
+         (name (cddr selected-id))
+         (rt (cadr selected-id))
+         (obj (knessy--kubectl-get-object-parsed-sync ns rt name))
+         (obj-sym (ht-get knessy--resource-type-str->sym rt)))
+    (when (not (or (eq obj-sym 'pod)
+                   (eq obj-sym 'node)))
+      (user-error "This command should be used on a pod or a node."))
+    (when-let* ((nodename
+                 (cond ((eq obj-sym 'pod)
+                        (ht-get* obj "spec" "nodeName"))
+                       ((eq obj-sym 'node)
+                        (ht-get* obj "metadata" "name")))))
+      (knessy--set-resource-type "pods")
+      (knessy--set-namespace knessy-all-namespaces-string)
+      (setq knessy--field-selectors (asoc-zip '("spec.nodeName") (list nodename)))
+      (setq knessy--label-selectors nil)
+      (knessy--display2))))
+
 (defun knessy--jump-children ()
   (interactive)
   (let* ((selected-id (tabulated-list-get-id))
          ;; TODO: extract all this functionality to functions working on "objects", don't cddr this shit
+         (ns (car selected-id))
          (name (cddr selected-id))
-         (obj (knessy--kubectl-get-object-parsed-sync name))
-         (owner-sym (ht-get knessy--resource-type-str->sym knessy--resource-type))
-         (children-resource-type (knessy--child-resource-type knessy--resource-type)))
+         (rt (cadr selected-id))
+         (obj (knessy--kubectl-get-object-parsed-sync ns rt name))
+         (owner-sym (ht-get knessy--resource-type-str->sym rt))
+         (children-resource-type (knessy--child-resource-type rt)))
     (cond ((eq owner-sym 'node)
            ;; TODO: implement this!
            (progn
@@ -734,8 +794,10 @@ in Knessy mode, else lists all existing buffers."
   (interactive)
   (let* ((selected-id (tabulated-list-get-id))
          ;; TODO: extract all this functionality to functions working on "objects", don't cddr this shit
+         (ns (car selected-id))
          (name (cddr selected-id))
-         (obj (knessy--kubectl-get-object-parsed-sync name)))
+         (rt (cadr selected-id))
+         (obj (knessy--kubectl-get-object-parsed-sync ns rt name)))
     (if-let* ((metadata (ht-get obj "metadata")))
         (if-let* ((owner-refs (ht-get metadata "ownerReferences")))
             (if (> (length owner-refs) 0)
@@ -743,7 +805,8 @@ in Knessy mode, else lists all existing buffers."
                        (owner-name (ht-get owner-ref "name"))
                        (owner-kind (ht-get owner-ref "kind"))
                        (owner-resource-type (knessy--kind->resource-type owner-kind)))
-                  ;; (setq knessy--resource-type owner-resource-type)
+                  (message "owner kind %s" owner-kind)
+                  (message "owner resource type %s" owner-resource-type)
                   (knessy--set-resource-type owner-resource-type)
                   (setq knessy--field-selectors `(("metadata.name" . ,owner-name)))
                   (setq knessy--label-selectors nil)
@@ -834,7 +897,10 @@ in Knessy mode, else lists all existing buffers."
   knessy-jump () "Jump"
   ["Jump to"
    ("c" "children" knessy--jump-children)
-   ("o" "owner" knessy--jump-owner)])
+   ("o" "owner" knessy--jump-owner)
+   ("n" "node" knessy--jump-node)
+   ("p" "node pods" knessy--jump-node-pods)
+   ("N" "namespace" knessy--jump-namespace)])
 
 (defcustom knessy-label-selector-finish-choice
   "*FINISH*"

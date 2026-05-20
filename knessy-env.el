@@ -1,7 +1,7 @@
 ;; -*- lexical-binding: t; -*-
 
 (defun knessy--env ()
-  (list knessy-kubeconfig knessy--context knessy--namespace knessy--resource-type knessy--label-selectors knessy--field-selectors))
+  (list knessy-kubeconfig knessy--context knessy--namespace knessy--resource-type knessy--label-selectors knessy--field-selectors knessy--view))
 
 (defun knessy--env-entry->str (env)
   (let* ((config (nth 0 env))
@@ -9,10 +9,12 @@
          (ns (nth 2 env))
          (rt (nth 3 env))
          (labels (nth 4 env))
-         (fields (nth 5 env)))
+         (fields (nth 5 env))
+         (view (nth 6 env)))
     (s-join ":" (list config ctx ns rt
                       (knessy--utils-alist->str-= labels)
-                      (knessy--utils-alist->str-= fields)))))
+                      (knessy--utils-alist->str-= fields)
+                      view))))
 
 
 (defun knessy--set-env (env)
@@ -24,14 +26,17 @@
            (ns (nth 2 env))
            (rt (nth 3 env))
            (labels (nth 4 env))
-           (fields (nth 5 env)))
+           (fields (nth 5 env))
+           (view (nth 6 env)))
       (setq
        knessy-kubeconfig config
-       knessy--context ctx
-       knessy--namespace ns
-       knessy--resource-type rt
        knessy--label-selectors labels
-       knessy--field-selectors fields))))
+       knessy--field-selectors fields)
+      (knessy--set-context ctx)
+      (knessy--set-namespace ns)
+      (knessy--set-resource-type rt)
+      (knessy--set-view rt view))))
+
 
 (defun knessy--env-equal-current (env)
   ;; might become more complicated if we don't want to include regex or other filters in equality, but want to restore them

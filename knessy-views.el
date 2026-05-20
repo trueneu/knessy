@@ -22,10 +22,10 @@
       ("STATUS" 12)
       ("RESTARTS" 10)
       ("NODE" 25)
-      ("CPU(r)" 20)
-      ("MEM(r)" 20)
-      ("CPU(l)" 20)
-      ("MEM(l)" 20))
+      ("CPU(r)" 30)
+      ("MEM(r)" 30)
+      ("CPU(l)" 30)
+      ("MEM(l)" 30))
   "Column widths by column name."
   :type 'sexp
   :group 'knessy)

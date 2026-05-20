@@ -58,6 +58,10 @@
 
 (defvar knessy--log-face-counter 0)
 
+(defface knessy-ts-face
+  '((default . (:inherit default :weight bold)))
+  "Timestamp face")
+
 ;; TODO (pgu, 19.05.2026): make another filter, with tabulated-list-mode and tablist-print-entry
 (defun knessy--make-process-filter-logs (buf &optional name print-prefix? print-prefix-width)
   (let* ((face (nth knessy--log-face-counter knessy--log-faces)))
@@ -84,6 +88,57 @@
                   (insert line "\n")))
               (when moving (goto-char (point-max))))))))))         ; auto-follow
 
+(comment
+ (let* ((kubectl-log-prefix-regex (rx bol "[" (group (one-or-more (| letter "." "-"))) "/" (group (one-or-more (| letter digit "-"))) "/" (group (one-or-more (| letter digit "-"))) "]" (char whitespace) (group (one-or-more (| digit "-" ":" "T" "." "Z"))) (char whitespace) (group (zero-or-more anychar))))
+        (s "[pod/ttd-consul-client-zwtz2/consul] 2026-04-22T17:47:59.478577647Z ==> Starting Consul agent..."))
+   (string-match kubectl-log-prefix-regex s)
+   (message (match-string 1 s))
+   (message (match-string 2 s))
+   (message (match-string 3 s))
+   (message (match-string 4 s))
+   (message (match-string 5 s))))
+
+(defun knessy--make-process-filter-logs2 (buf &optional print-pod-prefix? pod-prefix-width print-ts? ts-format)
+  (let* ((pod-face (nth knessy--log-face-counter knessy--log-faces))
+         (kubectl-log-prefix-regex (rx bol "[" (group (one-or-more (| letter "." "-"))) "/" (group (one-or-more (| letter digit "-"))) "/" (group (one-or-more (| letter digit "-"))) "]" (char whitespace) (group (one-or-more (| digit "-" ":" "T" "." "Z"))) (char whitespace) (group (zero-or-more anychar)))))
+
+    (setq knessy--log-face-counter (mod (1+ knessy--log-face-counter) (length knessy--log-faces)))
+    (lambda (proc output)
+      (when (buffer-live-p buf)
+        (let* ((pending (process-get proc 'knessy--line-buffer))
+               (combined (concat pending output))
+               (lines (split-string combined "\n"))
+               (incomplete (car (last lines)))
+               (complete (butlast lines)))
+          (process-put proc 'knessy--line-buffer incomplete)
+          (with-current-buffer buf
+            (let* ((inhibit-read-only t)
+                   (moving (= (point) (point-max))))
+              ;; Tag each line with the pod name for clarity
+              (save-excursion
+                (goto-char (point-max))
+                (dolist (line complete)
+                  (unless
+                      (string-match kubectl-log-prefix-regex line)
+                    (message "didn't match regex")
+                    (message line))
+                  (let* ((_ (match-string 1 line))
+                         (pod (match-string 2 line))
+                         (container (match-string 3 line))
+                         (ts (match-string 4 line))
+                         (msg (match-string 5 line))
+
+                         (timestamp (encode-time (parse-time-string ts)))
+                         ;; TODO (pgu, 20.05.2026): make this customizable
+                         (reformatted-ts (format-time-string (or ts-format "%Y-%m-%dT%H:%M:%S %z") timestamp)))
+                    (when print-pod-prefix?
+                      (insert
+                       (propertize (s-pad-right pod-prefix-width " " (format "[%s/%s] " pod container))
+                                   'face pod-face)))
+                    (when print-ts?
+                      (insert "[" (propertize reformatted-ts 'face 'knessy-ts-face) "] "))
+                    (insert msg "\n"))))
+              (when moving (goto-char (point-max))))))))))
 
 ;; FIXME: nconc?..
 (defun knessy--expand-list-in-place (orig extension)
@@ -93,6 +148,8 @@
 ;; TODO (pgu, 20.05.2026): move everything to knessy--shell-exec-async3
 (defun knessy--shell-exec-async2 (cmd buf buferr callback)
   (with-environment-variables (("KUBECONFIG" knessy-kubeconfig))
+    (message "Executing command: %s" cmd)
+    (message "KUBECONFIG: %s" (getenv "KUBECONFIG"))
     (let* ((process (make-process
                      :name "knessy-shell-exec"
                      :command (list "/bin/bash" "-c"

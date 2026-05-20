@@ -77,8 +77,8 @@ S is the string."
     (let* ((appropriate-name-mult (knessy--appropriate-mult bytes knessy--size-unit-pow2-multipliers-alist))
            (appropriate-name (car appropriate-name-mult))
            (appropriate-mult (cdr appropriate-name-mult))
-           (scaled (/ bytes appropriate-mult)))
-      (substring-no-properties (format "%.0f%s" scaled appropriate-name)))))
+           (scaled (/ (float bytes) appropriate-mult)))
+      (substring-no-properties (format "%.3f%s" scaled appropriate-name)))))
 
 (defun knessy--convert-cpu-units-millis (s)
   "Convert a string representing CPU usage into millicores.
@@ -97,7 +97,7 @@ MILLIS is the amount of millicores."
   (if (null millis)
       ""
     (if (> millis 1000)
-        (format "%.1f" (/ millis 1000))
+        (format "%.3f" (/ (float millis) 1000))
       (concat (number-to-string millis) "m"))))
 
 (defun knessy--ratio (x y)
@@ -106,7 +106,7 @@ MILLIS is the amount of millicores."
 If either is null, or y == 0, return \"N/A\""
   (if (or (null y) (zerop y) (null x))
       "?"
-    (substring-no-properties (format "%.0f%%" (/ x y 0.01)))))
+    (substring-no-properties (format "%.0f%%" (/ (float x) y 0.01)))))
 
 (defun knessy--convert-time-units-seconds (s)
   "Convert a string representing time to seconds integer.
