@@ -171,8 +171,8 @@ time of the last restart, or the amount of restarts."
          (selected-ids (knessy--ids))
 
          (current-env (knessy--env))
-         (log-buf (knessy--utils-make-buffer (generate-new-buffer-name (knessy--utils-kubectl-buffer-name "log"))))
-         (log-buferr (knessy--utils-make-buffer (generate-new-buffer-name (knessy--utils-kubectl-buffer-name "log" nil nil nil t)))))
+         (log-buf (knessy--utils-fresh-kubectl-buffer "log"))
+         (log-buferr (knessy--utils-fresh-kubectl-buffer "log" nil nil nil t)))
 
     (with-current-buffer log-buf
       (setq buffer-file-coding-system 'prefer-utf-8-unix)
@@ -374,7 +374,7 @@ in Knessy mode, else lists all existing buffers."
   (if (s-blank? knessy-initial-context)
       ;; FIXME: change hardcoded path here
       ;; FIXME: make it less low-level
-      (let* ((buf (knessy--utils-make-buffer (generate-new-buffer-name (knessy--utils-kubectl-buffer-name "current-config" t t t))))
+      (let* ((buf (knessy--utils-fresh-kubectl-buffer "current-config" t t t))
              (res (if (eq 0 (knessy--shell-exec (s-concat knessy-kubectl " config current-context") buf))
                       (with-current-buffer buf
                         (s-trim (buffer-string)))
@@ -636,8 +636,8 @@ in Knessy mode, else lists all existing buffers."
          (grace-period (transient-arg-value "--grace-period=" args))
          (now? (member "--now" args))
          (selected-ids (knessy--ids))
-         (kill-buf (knessy--utils-make-buffer (generate-new-buffer-name (knessy--utils-kubectl-buffer-name "kill"))))
-         (kill-buferr (knessy--utils-make-buffer (generate-new-buffer-name (knessy--utils-kubectl-buffer-name "kill" nil nil nil t)))))
+         (kill-buf (knessy--utils-fresh-kubectl-buffer "kill"))
+         (kill-buferr (knessy--utils-fresh-kubectl-buffer "kill" nil nil nil t)))
     ;; TODO (pgu, 18.05.2026): here, detect number of different resource types and bulk-delete them
     (if (or prefix (yes-or-no-p (s-concat "Killing " (s-join ", " (mapcar #'knessy--id-name selected-ids)) ", proceed? ")))
         (dolist (id selected-ids)
@@ -1037,8 +1037,8 @@ If omitted, use the current one (for synchronous calls)."
   (let ((promises '())
         (resolved '()))
     (dolist (call calls)
-      (let ((buf (knessy--utils-make-buffer (generate-new-buffer-name (knessy--utils-kubectl-buffer-name "aio-display" t t t))))
-            (buferr (knessy--utils-make-buffer (generate-new-buffer-name (knessy--utils-kubectl-buffer-name "aio-display" t t t t))))
+      (let ((buf (knessy--utils-fresh-kubectl-buffer "aio-display" t t t))
+            (buferr (knessy--utils-fresh-kubectl-buffer "aio-display" t t t t))
             (headers (asoc-get call :headers nil))
             (pre-process-ht (asoc-get call :pre-process (ht)))
             (post-process-ht (asoc-get call :post-process (ht)))
@@ -1068,7 +1068,7 @@ If omitted, use the current one (for synchronous calls)."
 (defun knessy--perform-calls-sync (calls)
   (let ((results '()))
     (dolist (call calls)
-      (let ((buf (knessy--utils-make-buffer (generate-new-buffer-name (knessy--utils-kubectl-buffer-name "display" t t t))))
+      (let ((buf (knessy--utils-fresh-kubectl-buffer "display" t t t))
             (headers (asoc-get call :headers nil))
             (pre-process-ht (asoc-get call :pre-process (ht)))
             (post-process-ht (asoc-get call :post-process (ht)))
@@ -1283,8 +1283,7 @@ Made so spamming refreshes doesn't result in 100 of kubectl calls.")
 (defun knessy-apply ()
   (interactive)
   (let* ((filename (buffer-file-name))
-         (buf-apply (knessy--utils-make-buffer (generate-new-buffer-name (knessy--utils-kubectl-buffer-name
-                                                                          (s-concat "apply_" filename) t t t)))))
+         (buf-apply (knessy--utils-fresh-kubectl-buffer (s-concat "apply_" filename) t t t)))
     (when (buffer-modified-p)
       (if (y-or-n-p "Buffer was modified. Save and continue? ")
           (save-buffer)
@@ -1306,10 +1305,7 @@ context and namespace."
          ;; FIXME (pgu, 18.05.2026): this one is just for the buffer naming really
          (knessy--resource-type knessy--last-selected-resource-type)
          (filename (buffer-file-name))
-         (buf (knessy--utils-make-buffer
-               (generate-new-buffer-name
-                (knessy--utils-kubectl-buffer-name
-                 (s-concat verb "_" filename) t t t)))))
+         (buf (knessy--utils-fresh-kubectl-buffer (s-concat verb "_" filename) t t t)))
     (when (buffer-modified-p)
       (if (y-or-n-p "Buffer was modified. Save and continue? ")
           (save-buffer)
@@ -1335,8 +1331,7 @@ context and namespace."
 
 (defun knessy--validate ()
   (let* ((filename (buffer-file-name))
-         (buf-validate (knessy--utils-make-buffer (generate-new-buffer-name (knessy--utils-kubectl-buffer-name
-                                                                             (s-concat "validate_" filename) t t t))))
+         (buf-validate (knessy--utils-fresh-kubectl-buffer (s-concat "validate_" filename) t t t))
          (exit-code (knessy--kubectl-validate-file-sync buf-validate filename)))
     (if (not (= 0 exit-code))
         (progn

@@ -123,6 +123,14 @@ in-place, the old list reference does not remain valid."
 (defun knessy--id-rt (id) (cadr id))
 (defun knessy--id-name (id) (cddr id))
 
+(defun knessy--utils-fresh-kubectl-buffer (what &optional omit-context? omit-namespace? omit-resource-type? stderr?)
+  "Create a fresh kubectl buffer with a unique generated name.
+Arguments are forwarded to `knessy--utils-kubectl-buffer-name'."
+  (knessy--utils-make-buffer
+   (generate-new-buffer-name
+    (knessy--utils-kubectl-buffer-name
+     what omit-context? omit-namespace? omit-resource-type? stderr?))))
+
 (defun knessy--utils-alist->str-= (alist)
   (s-join
    ","
