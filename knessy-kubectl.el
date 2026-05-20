@@ -528,7 +528,7 @@
     (knessy--kubectl-log-cmd ns resource-type name follow? tail nil nil all-containers? t container t)
     buf
     buferr
-    (knessy--make-process-filter-logs2 buf t knessy-prefix-width t)
+    (knessy--make-process-filter-logs2 buf prefix? knessy-prefix-width timestamps?)
     ;; (knessy--make-process-filter-logs buf name knessy-prefix? knessy-prefix-width)
     (lambda ())))
 
@@ -552,6 +552,7 @@
    (knessy--kubectl-get-obj-cmd ns rt name fmt)
    buf))
 
+;; TODO (pgu, 20.05.2026): lord why this creates its own buffer but the others get it as a param?
 (defun knessy--kubectl-describe-object-sync (ns rt name)
   (let ((buf (knessy--utils-make-buffer (generate-new-buffer-name (knessy--utils-kubectl-buffer-name name)))))
     (knessy--shell-exec

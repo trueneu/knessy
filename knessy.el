@@ -107,8 +107,7 @@ time of the last restart, or the amount of restarts."
      ("-f" "Follow logs"          "--follow")
      ("-a" "All containers"       "--all-containers")
      ("-t" "Tail (lines)"         "--tail="     :reader transient-read-number-N+)
-     ("-l" "Use labels"           "--use-labels")
-     ("-p" "Print prefix"         "--prefix")
+     ("-p" "Print pod/container prefix" "--prefix")
      ("-m" "Print timestamps"     "--timestamps")]
     ["Actions"
      ("l" "Display logs" knessy--logs)])
