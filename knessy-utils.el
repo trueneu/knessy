@@ -116,6 +116,13 @@ in-place, the old list reference does not remain valid."
      "")
    "*"))
 
+;; Resource IDs are dotted pairs of the form (NS . (RT . NAME)),
+;; constructed in knessy-representation.el. NS is nil for cluster-scoped
+;; resources. Always go through these accessors instead of car/cadr/cddr.
+(defun knessy--id-ns (id) (car id))
+(defun knessy--id-rt (id) (cadr id))
+(defun knessy--id-name (id) (cddr id))
+
 (defun knessy--utils-alist->str-= (alist)
   (s-join
    ","
