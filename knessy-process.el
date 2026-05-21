@@ -6,10 +6,6 @@
 (defvar knessy-shell-kill-success-buffers t
   "If t, buffers with command output are killed")
 
-(defun knessy--default-sentinel (proc ev)
-  (knessy--log 3 (format "Received event from process %s: %s"
-                         (process-name proc) ev)))
-
 (defun knessy--make-callback-sentinel (f buf buferr)
   (lambda (proc ev)
     (cond ((s-equals? ev "finished\n")
@@ -62,31 +58,44 @@
   '((default . (:inherit default :weight bold)))
   "Timestamp face")
 
+(defun knessy--next-log-face ()
+  "Pop the next face from `knessy--log-faces', round-robin."
+  (prog1 (nth knessy--log-face-counter knessy--log-faces)
+    (setq knessy--log-face-counter
+          (mod (1+ knessy--log-face-counter) (length knessy--log-faces)))))
+
+(defun knessy--make-line-filter (buf line-fn)
+  "Return a process filter that buffers OUTPUT into complete lines.
+For each complete line, calls LINE-FN with that line in BUF, with point at
+`point-max' and `inhibit-read-only' bound. Auto-follows point if it was at
+end-of-buffer before output arrived."
+  (lambda (proc output)
+    (when (buffer-live-p buf)
+      (let* ((pending (process-get proc 'knessy--line-buffer))
+             (combined (concat pending output))
+             (lines (split-string combined "\n"))
+             (incomplete (car (last lines)))
+             (complete (butlast lines)))
+        (process-put proc 'knessy--line-buffer incomplete)
+        (with-current-buffer buf
+          (let ((inhibit-read-only t)
+                (moving (= (point) (point-max))))
+            (save-excursion
+              (goto-char (point-max))
+              (dolist (line complete) (funcall line-fn line)))
+            (when moving (goto-char (point-max)))))))))
+
 ;; TODO (pgu, 19.05.2026): make another filter, with tabulated-list-mode and tablist-print-entry
 (defun knessy--make-process-filter-logs (buf &optional name print-prefix? print-prefix-width)
-  (let* ((face (nth knessy--log-face-counter knessy--log-faces)))
-    (setq knessy--log-face-counter (mod (1+ knessy--log-face-counter) (length knessy--log-faces)))
-    (lambda (proc output)
-      (when (buffer-live-p buf)
-        (let* ((pending (process-get proc 'knessy--line-buffer))
-               (combined (concat pending output))
-               (lines (split-string combined "\n"))
-               (incomplete (car (last lines)))
-               (complete (butlast lines)))
-          (process-put proc 'knessy--line-buffer incomplete)
-          (with-current-buffer buf
-            (let* ((inhibit-read-only t)
-                   (moving (= (point) (point-max))))
-              ;; Tag each line with the pod name for clarity
-              (save-excursion
-                (goto-char (point-max))
-                (dolist (line complete)
-                  (when print-prefix?
-                    (insert
-                     (propertize (s-pad-right print-prefix-width " " (format "[%s]" name))
-                                 'face face)))
-                  (insert line "\n")))
-              (when moving (goto-char (point-max))))))))))         ; auto-follow
+  (let ((face (knessy--next-log-face)))
+    (knessy--make-line-filter
+     buf
+     (lambda (line)
+       (when print-prefix?
+         (insert
+          (propertize (s-pad-right print-prefix-width " " (format "[%s]" name))
+                      'face face)))
+       (insert line "\n")))))
 
 (comment
  (let* ((kubectl-log-prefix-regex (rx bol "[" (group (one-or-more (| letter "." "-"))) "/" (group (one-or-more (| letter digit "-"))) "/" (group (one-or-more (| letter digit "-"))) "]" (char whitespace) (group (one-or-more (| digit "-" ":" "T" "." "Z"))) (char whitespace) (group (zero-or-more anychar))))
@@ -99,66 +108,36 @@
    (message (match-string 5 s))))
 
 (defun knessy--make-process-filter-logs2 (buf &optional print-pod-prefix? pod-prefix-width print-ts? ts-format)
-  (let* ((pod-face (nth knessy--log-face-counter knessy--log-faces))
-         (kubectl-log-prefix-regex (rx bol "[" (group (one-or-more (| letter "." "-"))) "/" (group (one-or-more (| letter digit "-"))) "/" (group (one-or-more (| letter digit "-"))) "]" (char whitespace) (group (one-or-more (| digit "-" ":" "T" "." "Z"))) (char whitespace) (group (zero-or-more anychar)))))
-
-    (setq knessy--log-face-counter (mod (1+ knessy--log-face-counter) (length knessy--log-faces)))
-    (lambda (proc output)
-      (when (buffer-live-p buf)
-        (let* ((pending (process-get proc 'knessy--line-buffer))
-               (combined (concat pending output))
-               (lines (split-string combined "\n"))
-               (incomplete (car (last lines)))
-               (complete (butlast lines)))
-          (process-put proc 'knessy--line-buffer incomplete)
-          (with-current-buffer buf
-            (let* ((inhibit-read-only t)
-                   (moving (= (point) (point-max))))
-              ;; Tag each line with the pod name for clarity
-              (save-excursion
-                (goto-char (point-max))
-                (dolist (line complete)
-                  (unless
-                      (string-match kubectl-log-prefix-regex line)
-                    (message "didn't match regex")
-                    (message line))
-                  (let* ((_ (match-string 1 line))
-                         (pod (match-string 2 line))
-                         (container (match-string 3 line))
-                         (ts (match-string 4 line))
-                         (msg (match-string 5 line))
-
-                         (timestamp (encode-time (parse-time-string ts)))
-                         ;; TODO (pgu, 20.05.2026): make this customizable
-                         (reformatted-ts (format-time-string (or ts-format "%Y-%m-%dT%H:%M:%S %z") timestamp)))
-                    (when print-pod-prefix?
-                      (insert
-                       (propertize (s-pad-right pod-prefix-width " " (format "[%s/%s] " pod container))
-                                   'face pod-face)))
-                    (when print-ts?
-                      (insert "[" (propertize reformatted-ts 'face 'knessy-ts-face) "] "))
-                    (insert msg "\n"))))
-              (when moving (goto-char (point-max))))))))))
-
-;; FIXME: nconc?..
-(defun knessy--expand-list-in-place (orig extension)
-  (dolist (elt extension orig)
-    (push elt orig)))
+  (let ((pod-face (knessy--next-log-face))
+        (kubectl-log-prefix-regex (rx bol "[" (group (one-or-more (| letter "." "-"))) "/" (group (one-or-more (| letter digit "-"))) "/" (group (one-or-more (| letter digit "-"))) "]" (char whitespace) (group (one-or-more (| digit "-" ":" "T" "." "Z"))) (char whitespace) (group (zero-or-more anychar)))))
+    (knessy--make-line-filter
+     buf
+     (lambda (line)
+       (unless (string-match kubectl-log-prefix-regex line)
+         (message "didn't match regex")
+         (message line))
+       (let* ((_ (match-string 1 line))
+              (pod (match-string 2 line))
+              (container (match-string 3 line))
+              (ts (match-string 4 line))
+              (msg (match-string 5 line))
+              (timestamp (encode-time (parse-time-string ts)))
+              ;; TODO (pgu, 20.05.2026): make this customizable
+              (reformatted-ts (format-time-string (or ts-format "%Y-%m-%dT%H:%M:%S %z") timestamp)))
+         (when print-pod-prefix?
+           (insert
+            (propertize (s-pad-right pod-prefix-width " " (format "[%s/%s] " pod container))
+                        'face pod-face)))
+         (when print-ts?
+           (insert "[" (propertize reformatted-ts 'face 'knessy-ts-face) "] "))
+         (insert msg "\n"))))))
 
 ;; TODO (pgu, 20.05.2026): move everything to knessy--shell-exec-async3
 (defun knessy--shell-exec-async2 (cmd buf buferr callback)
-  (with-environment-variables (("KUBECONFIG" knessy-kubeconfig))
-    (message "Executing command: %s" cmd)
-    (message "KUBECONFIG: %s" (getenv "KUBECONFIG"))
-    (let* ((process (make-process
-                     :name "knessy-shell-exec"
-                     :command (list "/bin/bash" "-c"
-                                    cmd)
-                     :buffer buf
-                     :stderr buferr
-                     ;; TODO: remove this leave default?
-                     :filter (knessy--make-process-filter-to-buffer buf)
-                     :sentinel (knessy--make-callback-sentinel callback buf buferr)))))))
+  (knessy--shell-exec-async3
+   cmd buf buferr
+   (knessy--make-process-filter-to-buffer buf)
+   callback))
 
 (defun knessy--shell-exec-async3 (cmd buf buferr filter callback &optional skip-query-on-exit)
   (with-environment-variables (("KUBECONFIG" knessy-kubeconfig))
@@ -186,10 +165,6 @@
 ;;   (let* ((process (start-process-shell-command "knessy-shell-exec" nil cmd)))
 ;;     (set-process-filter process (knessy--make-process-filter-to-buffer buf))
 ;;     (set-process-sentinel process (knessy--make-callback-sentinel callback))))
-
-;; FIXME: this gets shell-command's output?.. how?..
-(defun knessy--error-buf ()
-  "*knessy-err*")
 
 (defun knessy--shell-exec (cmd buf &optional mix-stderr)
   (with-environment-variables (("KUBECONFIG" knessy-kubeconfig))
