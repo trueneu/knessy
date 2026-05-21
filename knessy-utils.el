@@ -17,7 +17,6 @@ in-place, the old list reference does not remain valid."
     (setcdr c (cons el (cdr c)))
     (cdr padded-list)))
 
-;; TODO: maybe this helper is not needed with generate-new-buffer-name
 (defun knessy--utils-make-buffer (buffer-name)
   "Either kill an existing buffer with the name and create a new one, or just create it."
   (let ((buf (get-buffer buffer-name)))
@@ -40,19 +39,13 @@ in-place, the old list reference does not remain valid."
 (defun knessy--utils-set-intersection (ht1 ht2)
   "Compute sets intersection between ht1 and ht2"
   (interactive)
-  (let ((intersection '())
-        (smaller-set (if (< (ht-size ht1)
-                            (ht-size ht2))
-                         ht1
-                       ht2))
-        (larger-set (if (< (ht-size ht1)
-                           (ht-size ht2))
-                        ht2
-                      ht1)))
+  (let* ((ht1-smaller? (< (ht-size ht1) (ht-size ht2)))
+         (smaller-set (if ht1-smaller? ht1 ht2))
+         (larger-set  (if ht1-smaller? ht2 ht1))
+         (intersection '()))
     (dolist (key (ht-keys smaller-set) intersection)
       (when (ht-contains? larger-set key)
-        (push key intersection)))
-    intersection))
+        (push key intersection)))))
 
 (defun knessy--utils-ht-merge-duplicates-to-sets (&rest tables)
   (let ((res-table (ht)))
