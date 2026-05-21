@@ -83,7 +83,11 @@ end-of-buffer before output arrived."
             (save-excursion
               (goto-char (point-max))
               (dolist (line complete) (funcall line-fn line)))
-            (when moving (goto-char (point-max)))))))))
+            (when moving
+              (goto-char (point-max))
+              (when-let* ((win (get-buffer-window buf 0)))
+                (set-window-point win (point-max))))))))))
+
 
 ;; TODO (pgu, 19.05.2026): make another filter, with tabulated-list-mode and tablist-print-entry
 (defun knessy--make-process-filter-logs (buf &optional name print-prefix? print-prefix-width)

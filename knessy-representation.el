@@ -301,6 +301,43 @@ Specify empty hashtable if no post-processing is desired.
          (propertize (car x/y) 'face 'knessy-ready-all)
          "/" (cdr x/y)))))
 
+(defcustom knessy-usage-percentage-warning 80
+  "TODO"
+  :group 'knessy
+  :type 'integer)
+
+(defcustom knessy-usage-percentage-critical 90
+  "TODO"
+  :group 'knessy
+  :type 'integer)
+
+(defface knessy-usage-percentage-warning
+  '((default . (:inherit warning)))
+  "Warning face")
+
+(defface knessy-usage-percentage-critical
+  '((default . (:inherit error)))
+  "Critical face")
+
+(comment
+ (s-split "\s" "abc def"))
+
+(defun knessy--propertize-percentage (s)
+  (let* ((parts (s-split "\s" s))
+         (percentage (s-chop-suffix "%" (first parts)))
+         (percentage-num (string-to-number percentage)))
+    (cond
+     ((> percentage-num knessy-usage-percentage-critical)
+      (s-concat
+       (propertize (s-concat percentage "% ") 'face 'knessy-usage-percentage-critical)
+       (second parts)))
+     ((> percentage-num knessy-usage-percentage-warning)
+      (s-concat
+       (propertize (s-concat percentage "% ") 'face 'knessy-usage-percentage-warning)
+       (second parts)))
+     (t
+      s))))
+
 (comment
  (knessy--propertize-status "Running"))
 
@@ -354,6 +391,11 @@ Specify empty hashtable if no post-processing is desired.
                 (knessy--propertize-ready value))
                ((s-equals? "READY" column)
                 (knessy--propertize-ready value))
+               ((or (s-equals? "CPU(r)" column)
+                    (s-equals? "MEM(r)" column)
+                    (s-equals? "CPU(l)" column)
+                    (s-equals? "MEM(l)" column))
+                (knessy--propertize-percentage value))
                (t value))))
           columns)))))
    (-remove

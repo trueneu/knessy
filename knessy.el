@@ -1105,9 +1105,24 @@ Made so spamming refreshes doesn't result in 100 of kubectl calls.")
                           collected)))
         (knessy--display2-common-part display-buf view results post-process-fn)))))
 
+;; from Rosetta Code, https://rosettacode.org/wiki/Pick_random_element
+(defun knessy--random-choice (items)
+  (nth (random (length items)) items))
+
+(defcustom knessy-display-start-messages
+  '("Working..."
+    "Knessy stood at the helm..."
+    "Grabbing stuff..."
+    "Putting kubectl at work..."
+    "Thinking...")
+  "List of messages to display when the display command is invoked."
+  :group 'knessy
+  :type '(repeat string))
+
 ;; FIXME: I don't understand why this function is needed, but (commandp 'knessy--display2-aio) is nil?..
 (defun knessy--display2 (&optional sync)
   (interactive "P")
+  (message (knessy--random-choice knessy-display-start-messages))
   (knessy--env-ring-push (knessy--env))
   (if sync
         (knessy--display2-sync)

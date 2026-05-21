@@ -59,7 +59,7 @@ MULTS is an alist of multipliers"
 S is the string."
   (if (or (s-equals? "-" s) (s-blank? s))
       0
-    (when (string-match (rx bol (group (one-or-more digit)) (group (? (or "Ki" "Mi" "Gi" "Ti" "K" "M" "G" "T")) eol))
+    (when (string-match (rx bol (group (one-or-more (or digit ".")) (group (? (or "Ki" "Mi" "Gi" "Ti" "K" "M" "G" "T")) eol)))
                         s)
       (let* ((num (string-to-number (match-string 1 s)))
              (units (asoc-get knessy--size-units-alist (match-string 2 s)))

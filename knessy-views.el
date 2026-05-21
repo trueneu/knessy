@@ -37,9 +37,6 @@
   `(("pods" . "concise"))
   "ALIST of resource resource-type to the view name that's applied by default")
 
-(defvar knessy--views-last-selected (ht)
-  "Contains the last selected view for a resource-type")
-
 ;; (defcustom knessy-default-view
 ;;   '(:calls . (((:type . :get))))
 ;;   "An alist depicting the default view"
@@ -134,6 +131,7 @@
   :group 'knessy)
 
 (comment
+ (knessy--convert-size-units-bytes "400Mi")
  (funcall
    (->
     knessy-views
