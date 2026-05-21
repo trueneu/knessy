@@ -20,7 +20,7 @@
       ("RDY" 5)
       ("IP" 16)
       ("STATUS" 12)
-      ("RESTARTS" 10)
+      ("RESTARTS" 20)
       ("NODE" 25)
       ("CPU(r)" 30)
       ("MEM(r)" 30)
