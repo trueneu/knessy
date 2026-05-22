@@ -20,6 +20,7 @@ All the code lives in `.el` files, roughly categorized by purpose.
 - `knessy-units.el` works with unit conversions.
 - `knessy-utils.el` defines helper functions.
 - `knessy-views.el` defines different "views" (custom table configurations).
+- `knessy-env.el` controls "environments" -- knessy view contexts (a tuple of context, namespace, resource type, filters, etc) that user can jump between.
 
 ## Idea
 

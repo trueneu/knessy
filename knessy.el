@@ -100,6 +100,8 @@ time of the last restart, or the amount of restarts."
   (let ((env (knessy--env-ring-read-forward)))
     (knessy--set-env env)))
 
+;; TODO (pgu, 22.05.2026): make a knessy-env command that displays all the saved environments history entries as a table.
+
 (transient-define-prefix knessy-log ()
     "Show logs for the selected resource(s)."
     :value '("--tail=100" "--follow")
