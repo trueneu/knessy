@@ -157,6 +157,72 @@
             knessy--env-ring-write new-write
             knessy--env-ring-end new-end))))
 
+(defun knessy--env-ring-live-indices ()
+  "Return ring indices with valid entries, oldest first.
+Walks from `knessy--env-ring-begin' up to but not including
+`knessy--env-ring-end' (wrapping around)."
+  (let ((indices (list knessy--env-ring-begin))
+        (i (knessy--env-ring-inc knessy--env-ring-begin)))
+    (while (/= i knessy--env-ring-end)
+      (push i indices)
+      (setq i (knessy--env-ring-inc i)))
+    (nreverse indices)))
+
+(defvar-local knessy--env-history-origin-buffer nil
+  "Knessy buffer whose env ring is shown in this history view.")
+
+(defvar knessy-env-history-mode-map
+  (let ((map (make-sparse-keymap)))
+    (set-keymap-parent map tabulated-list-mode-map)
+    (define-key map (kbd "RET") #'knessy-env-history-jump)
+    map)
+  "Keymap for `knessy-env-history-mode'.")
+
+(define-derived-mode knessy-env-history-mode tabulated-list-mode "knessy-env-history"
+  "Major mode for browsing the knessy environment history ring."
+  (setq tabulated-list-format [("CUR" 4 nil) ("ENVIRONMENT" 100 nil)])
+  (tabulated-list-init-header))
+
+(defun knessy-env-history ()
+  "Show the env ring history; RET on an entry jumps to it.
+Most-recent entries appear first. Selecting an entry sets the env in the
+originating knessy buffer, updates the ring's read position, and redisplays."
+  (interactive)
+  (let* ((origin (current-buffer))
+         (current-idx knessy--env-ring-read)
+         (ring knessy--env-ring)
+         (indices (nreverse (knessy--env-ring-live-indices)))
+         (entries (mapcar
+                   (lambda (idx)
+                     (list idx
+                           (vector
+                            (if (= idx current-idx) "*" "")
+                            (knessy--env-entry->str (aref ring idx)))))
+                   indices))
+         (buf (get-buffer-create "*knessy-env-history*")))
+    (with-current-buffer buf
+      (knessy-env-history-mode)
+      (setq knessy--env-history-origin-buffer origin)
+      (setq tabulated-list-entries entries)
+      (tabulated-list-print))
+    (pop-to-buffer buf)))
+
+(defun knessy-env-history-jump ()
+  "Set the env in the origin buffer to the entry under point and redisplay."
+  (interactive)
+  (let ((idx (tabulated-list-get-id))
+        (origin knessy--env-history-origin-buffer)
+        (hist-buf (current-buffer)))
+    (unless idx (user-error "No entry on this line"))
+    (unless (buffer-live-p origin) (user-error "Origin buffer is gone"))
+    (with-current-buffer origin
+      (setq knessy--env-ring-read idx
+            knessy--env-ring-write (knessy--env-ring-inc idx))
+      (knessy--set-env (aref knessy--env-ring idx))
+      (knessy--display2))
+    (pop-to-buffer origin)
+    (kill-buffer hist-buf)))
+
 (comment
  (knessy--env-ring-reset)
  (knessy--env-ring-show)
