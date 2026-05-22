@@ -1241,13 +1241,13 @@ Made so spamming refreshes doesn't result in 100 of kubectl calls.")
   (let* ((knessy-buffer (knessy-get-new-buffer)))
     ;; TODO (pgu, 17.05.2026): huh, should there be a setup step that's run only once or something?
     (make-directory knessy-temp-file-dir t)
-    (knessy--set-resource-type knessy--resource-type)
     ;; FIXME: is it wrong use of nconc there?
     (setq knessy-buffer-list (nconc knessy-buffer-list (list knessy-buffer)))
     (set-buffer knessy-buffer)
     (knessy-mode)
     (switch-to-buffer knessy-buffer)
-    (knessy--set-env-last-selected)))
+    (knessy--set-env-last-selected)
+    (knessy--env-ring-reset)))
 
 (defun knessy ()
   (interactive)
@@ -1261,6 +1261,7 @@ Made so spamming refreshes doesn't result in 100 of kubectl calls.")
 (define-derived-mode knessy-mode tabulated-list-mode "Knessy"
   "Mode for Knessy buffers."
   (buffer-disable-undo)
+  ;; TODO (pgu, 22.05.2026): (knessy--caches-populate-async) should only populate them if needed
   (knessy--caches-populate-async)
   ;; FIXME: this actually breaks stuff, global hook -- let's override revert for Knessy buffers?
   ;; (add-hook 'tabulated-list-revert-hook #'knessy--display-aio)
@@ -1288,7 +1289,6 @@ Made so spamming refreshes doesn't result in 100 of kubectl calls.")
                         ""
                       (format " /%s/" knessy--regex)))))))
 
-;; TODO: next thing, implement data <-> display link to hash out the data architecture
 
 ;; TODO: save to a temp file
 ;; run kubectl apply -f file with namespace context config etc

@@ -178,9 +178,16 @@ Walks from `knessy--env-ring-begin' up to but not including
     map)
   "Keymap for `knessy-env-history-mode'.")
 
-(define-derived-mode knessy-env-history-mode tabulated-list-mode "knessy-env-history"
+(define-derived-mode knessy-env-history-mode tabulated-list-mode "Knessy/EnvHist"
   "Major mode for browsing the knessy environment history ring."
-  (setq tabulated-list-format [("CUR" 4 nil) ("ENVIRONMENT" 100 nil)])
+  (setq tabulated-list-format [("CUR" 4 nil)
+                               ("CONFIG" 30 nil)
+                               ("CTX" 15 nil)
+                               ("NS" 20 nil)
+                               ("RES-TYPE" 20 nil)
+                               ("LABELS" 30 nil)
+                               ("FIELDS" 30 nil)
+                               ("VIEW" 30 nil)])
   (tabulated-list-init-header))
 
 (defun knessy-env-history ()
@@ -194,10 +201,18 @@ originating knessy buffer, updates the ring's read position, and redisplays."
          (indices (nreverse (knessy--env-ring-live-indices)))
          (entries (mapcar
                    (lambda (idx)
-                     (list idx
-                           (vector
-                            (if (= idx current-idx) "*" "")
-                            (knessy--env-entry->str (aref ring idx)))))
+                     (let* ((entry (aref ring idx)))
+                       (princ entry)
+                       (list idx
+                             (vector
+                              (if (= idx current-idx) "*" "")
+                              (or (nth 0 entry) "")
+                              (or (nth 1 entry) "")
+                              (or (nth 2 entry) "")
+                              (or (nth 3 entry) "")
+                              (knessy--utils-alist->str-= (nth 4 entry))
+                              (knessy--utils-alist->str-= (nth 5 entry))
+                              (or (nth 6 entry) "")))))
                    indices))
          (buf (get-buffer-create "*knessy-env-history*")))
     (with-current-buffer buf

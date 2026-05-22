@@ -132,4 +132,7 @@ Arguments are forwarded to `knessy--utils-kubectl-buffer-name'."
       (format "%s=%s" k v))
     alist)))
 
+(comment
+ (knessy--utils-alist->str-= nil))
+
 (provide 'knessy-utils)
