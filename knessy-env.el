@@ -202,10 +202,10 @@ originating knessy buffer, updates the ring's read position, and redisplays."
          (entries (mapcar
                    (lambda (idx)
                      (let* ((entry (aref ring idx)))
-                       (princ entry)
                        (list idx
                              (vector
                               (if (= idx current-idx) "*" "")
+                              ;; TODO (pgu, 23.05.2026): destructure this properly
                               (or (nth 0 entry) "")
                               (or (nth 1 entry) "")
                               (or (nth 2 entry) "")

@@ -131,7 +131,7 @@ Specify empty hashtable if no post-processing is desired.
                   ;; TODO: redefine resource-type here when we support the *ALL* resource-types queries
                   ;; TODO: this effectively means we can't pre-process NAME, NAMESPACE or KIND
                   (cond ((s-equals? key "NAME")
-                         (setq name value))
+                         (setq name (s-chop-suffix " (default)" value)))
                         ;; TODO: if namespace is missing from the output, must grab "current" one
                         ;; but only if it's a namespaced resource
                         ((s-equals? key "NAMESPACE")

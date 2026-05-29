@@ -28,6 +28,7 @@
 ;; should all be requires here
 
 (load "./knessy-kubectl.el")
+(load "./knessy-exec.el")
 (load "./knessy-process.el")
 (load "./knessy-representation.el")
 (load "./knessy-units.el")
@@ -38,6 +39,7 @@
 (load "./knessy-env.el")
 
 (require 'knessy-kubectl)
+(require 'knessy-exec)
 (require 'knessy-process)
 (require 'knessy-representation)
 (require 'knessy-units)
