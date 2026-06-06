@@ -189,6 +189,20 @@ time of the last restart, or the amount of restarts."
       (knessy--set-env current-env))
     (display-buffer log-buf)))
 
+(defun knessy-shell-into ()
+  (interactive)
+  (let* ((selected-ids (knessy--ids))
+         ;; TODO (pgu, 29.05.2026): in principle we could work on multiple pods, just open multiple buffers...
+         (id (first selected-ids))
+         (ns (knessy--id-ns id))
+         (rt (knessy--id-rt id))
+         (name (knessy--id-name id))
+         (ctx knessy--context))
+    (unless (eq 'pod (ht-get knessy--resource-type-str->sym rt))
+      (user-error "Can only shell into pods!"))
+    (knessy-exec-vterm-pod ctx ns name)))
+ 
+
 (defvar knessy-mode-map
   (let ((map (make-sparse-keymap)))
     (define-key map (kbd "c") 'knessy-config)
@@ -212,6 +226,7 @@ time of the last restart, or the amount of restarts."
     (define-key map (kbd "[") 'knessy-env-go-back)
     (define-key map (kbd "]") 'knessy-env-go-forward)
     (define-key map (kbd "z") 'knessy-env-history)
+    (define-key map (kbd "s") 'knessy-shell-into)
     map)
   "Keymap for `knessy-mode'.")
 
