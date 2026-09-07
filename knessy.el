@@ -25,6 +25,26 @@
   :type 'string
   :group 'knessy)
 
+(defcustom knessy-all-namespaced-resource-types-string "*ALL-NS*"
+  "String depicting all namespaced resource types.
+
+When the resource-type is set to this value, Knessy queries every
+namespaced resource type known to the cluster and shows namespace,
+name and kind for each one, instead of the columns of a single
+resource type."
+  :type 'string
+  :group 'knessy)
+
+(defcustom knessy-all-cluster-resource-types-string "*ALL-CLUSTER*"
+  "String depicting all cluster-scoped (non-namespaced) resource types.
+
+When the resource-type is set to this value, Knessy queries every
+cluster-scoped resource type known to the cluster and shows name and
+kind for each one (there's no NAMESPACE column, since it would always
+be empty), instead of the columns of a single resource type."
+  :type 'string
+  :group 'knessy)
+
 ;; should all be requires here
 
 (load "./knessy-kubectl.el")
@@ -362,6 +382,17 @@ in Knessy mode, else lists all existing buffers."
 
 (defun knessy--namespace-all? (namespace)
   (s-equals? namespace knessy-all-namespaces-string))
+
+(defun knessy--resource-type-all-namespaced? (resource-type)
+  (s-equals? resource-type knessy-all-namespaced-resource-types-string))
+
+(defun knessy--resource-type-all-cluster? (resource-type)
+  (s-equals? resource-type knessy-all-cluster-resource-types-string))
+
+(defun knessy--resource-type-all-synthetic? (resource-type)
+  "T if RESOURCE-TYPE is one of the *ALL-...* pseudo resource-types."
+  (or (knessy--resource-type-all-namespaced? resource-type)
+      (knessy--resource-type-all-cluster? resource-type)))
 
 ;; TODO: all these should be customizable
 ;; TODO: these should be set from the actual available resources,
@@ -877,6 +908,8 @@ in Knessy mode, else lists all existing buffers."
 ;; TODO: finish this, so we can jump to children
 (defun knessy--filter-field-selector ()
   (interactive)
+  (when (knessy--resource-type-all-synthetic? knessy--resource-type)
+    (user-error "Field selectors are not supported for the %s resource-type" knessy--resource-type))
   (let ((current-field nil)
         (current-value nil)
         (new-filters '())
@@ -932,6 +965,8 @@ in Knessy mode, else lists all existing buffers."
 
 (defun knessy--filter-label ()
   (interactive)
+  (when (knessy--resource-type-all-synthetic? knessy--resource-type)
+    (user-error "Label selectors are not supported for the %s resource-type" knessy--resource-type))
   (let ((current-label nil)
         (current-value nil)
         (new-selectors '())
@@ -1179,7 +1214,12 @@ Made so spamming refreshes doesn't result in 100 of kubectl calls.")
   (let* ((columns (asoc-get view :columns nil))
          ;; mix-in NAMESPACE column in front of NAME if current namespace is *ALL*
          ;; if the columns is nil, leave it as is -- NAMESPACE should be present in the kubectl output anyways
-         (columns (if (and knessy--namespace-current-all? columns)
+         (columns (if (and knessy--namespace-current-all?
+                           columns
+                           (not (member "NAMESPACE" columns))
+                           ;; cluster-scoped resources never have a namespace, so the
+                           ;; *ALL-CLUSTER* view deliberately omits this column
+                           (not (knessy--resource-type-all-cluster? knessy--resource-type)))
                       (knessy--utils-insert-into-list
                        columns "NAMESPACE" (-elem-index "NAME" columns))
                     columns))

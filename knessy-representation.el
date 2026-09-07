@@ -128,14 +128,18 @@ Specify empty hashtable if no post-processing is desired.
                   ;; if key is "simple", put as is
                   ;; probably only add it if it's not name/namespace
                   (ht-set item key value)
-                  ;; TODO: redefine resource-type here when we support the *ALL* resource-types queries
                   ;; TODO: this effectively means we can't pre-process NAME, NAMESPACE or KIND
                   (cond ((s-equals? key "NAME")
                          (setq name (s-chop-suffix " (default)" value)))
                         ;; TODO: if namespace is missing from the output, must grab "current" one
                         ;; but only if it's a namespaced resource
                         ((s-equals? key "NAMESPACE")
-                         (setq namespace value))))))
+                         (setq namespace (unless (s-blank? value) value)))
+                        ;; the *ALL* resource-type view queries many kinds at once,
+                        ;; so the KIND column (not the buffer's resource-type) says
+                        ;; what each row actually is
+                        ((s-equals? key "KIND")
+                         (setq resource-type value))))))
 
             ;; then add all the accumulated goodies
             (dolist (kv (ht-items accumulators))

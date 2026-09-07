@@ -123,7 +123,23 @@
       ('("pods" . "concise")
        `((:columns . ("NAME" "RDY" "STATUS" "RESTARTS" "IP" "NODE" "AGE"))
          (:column-rename . ,(ht ("RDY" "READY")))
-         (:calls . (((:type . :get-wide)))))))
+         (:calls . (((:type . :get-wide))))))
+
+      ((cons knessy-all-namespaced-resource-types-string knessy-default-view-string)
+       `((:columns . ("NAMESPACE" "NAME" "KIND"))
+         (:widths . ,(ht ("KIND" 32)))
+         (:calls . (((:type . :all-resources)
+                     (:scope . :namespaced)
+                     (:spec . "'{range .items[*]}{.kind}|{.metadata.namespace}|{.metadata.name}{\"\\n\"}{end}'")
+                     (:headers . ((:static . ("KIND" "NAMESPACE" "NAME")))))))))
+
+      ((cons knessy-all-cluster-resource-types-string knessy-default-view-string)
+       `((:columns . ("NAME" "KIND"))
+         (:widths . ,(ht ("KIND" 32)))
+         (:calls . (((:type . :all-resources)
+                     (:scope . :cluster)
+                     (:spec . "'{range .items[*]}{.kind}|{.metadata.name}{\"\\n\"}{end}'")
+                     (:headers . ((:static . ("KIND" "NAME"))))))))))
 
 
   "The variable defines different queries by resource type."

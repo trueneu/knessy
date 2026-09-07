@@ -5,6 +5,9 @@
 ;; TODO: include labels as filters here?
 ;; TODO: rename to kubectl get command and fix the verb?..
 (defun knessy--kubectl-cmd (verb &optional fmt omit-namespace? no-headers? omit-context? omit-labels? omit-fields?)
+  (when (knessy--resource-type-all-synthetic? knessy--resource-type)
+    (error "Refusing to run kubectl with the literal %s resource-type: the view for it is missing or a stale `knessy-views' is still loaded (defcustom values don't reload on `load'/`eval-buffer' once already bound -- restart Emacs, or `(makunbound 'knessy-views)' and reload knessy-views.el)"
+           knessy--resource-type))
   (let ((cmd (s-concat
               knessy-kubectl
               (if omit-context?
@@ -206,6 +209,16 @@
            (knessy--kubectl-cmd "get" (s-concat "custom-columns=" (asoc-get call :spec))))
           ((eq :jsonpath type)
            (knessy--kubectl-cmd "get" (s-concat "jsonpath=" (asoc-get call :spec))))
+          ((eq :all-resources type)
+           ;; query every listable resource type of the given :scope at once;
+           ;; labels/fields are per-resource-type and don't apply uniformly
+           ;; across all kinds
+           (let* ((scope (asoc-get call :scope))
+                  (cluster? (eq scope :cluster))
+                  (knessy--resource-type (if cluster?
+                                             (knessy--kubectl-all-cluster-resource-types-joined)
+                                           (knessy--kubectl-all-namespaced-resource-types-joined))))
+             (knessy--kubectl-cmd "get" (s-concat "jsonpath=" (asoc-get call :spec)) cluster? nil nil t t)))
           ((eq :top type)
            (knessy--kubectl-cmd "top")))))
 
@@ -297,6 +310,26 @@
     (knessy--utils-set
      (knessy--utils-read-buffer buf))))
 
+;; only resource types supporting the "list" verb can be safely combined into
+;; a single "kubectl get type1,type2,..." call without the whole call failing
+(defun knessy--kubectl-resource-types-listable-namespaced-list ()
+  (let ((buf (knessy--utils-make-buffer (generate-new-buffer-name (knessy--utils-kubectl-buffer-name "resource-types-listable-namespaced" nil t t)))))
+    (knessy--shell-exec
+     (s-concat knessy-kubectl
+               " --context " knessy--context
+               " api-resources --verbs=list --namespaced=true --output name")
+     buf)
+    (knessy--utils-read-buffer buf)))
+
+(defun knessy--kubectl-resource-types-listable-cluster-list ()
+  (let ((buf (knessy--utils-make-buffer (generate-new-buffer-name (knessy--utils-kubectl-buffer-name "resource-types-listable-cluster" nil t t)))))
+    (knessy--shell-exec
+     (s-concat knessy-kubectl
+               " --context " knessy--context
+               " api-resources --verbs=list --namespaced=false --output name")
+     buf)
+    (knessy--utils-read-buffer buf)))
+
 ;; TODO: differences between all the kubectl- commands are:
 ;;   - buffer names
 ;;   - actual command
@@ -307,7 +340,31 @@
    knessy--cache
    (list :resource-types knessy--context)
    (lambda ()
-     (knessy--kubectl-resource-types-list))))
+     (cons knessy-all-namespaced-resource-types-string
+           (cons knessy-all-cluster-resource-types-string
+                 (knessy--kubectl-resource-types-list))))))
+
+(defun knessy--resource-types-listable-namespaced ()
+  (knessy--cache-get
+   knessy--cache
+   (list :resource-types-listable-namespaced knessy--context)
+   (lambda ()
+     (knessy--kubectl-resource-types-listable-namespaced-list))))
+
+(defun knessy--resource-types-listable-cluster ()
+  (knessy--cache-get
+   knessy--cache
+   (list :resource-types-listable-cluster knessy--context)
+   (lambda ()
+     (knessy--kubectl-resource-types-listable-cluster-list))))
+
+(defun knessy--kubectl-all-namespaced-resource-types-joined ()
+  "Comma-joined list of every listable namespaced resource type, for the *ALL-NS* view."
+  (s-join "," (knessy--resource-types-listable-namespaced)))
+
+(defun knessy--kubectl-all-cluster-resource-types-joined ()
+  "Comma-joined list of every listable cluster-scoped resource type, for the *ALL-CLUSTER* view."
+  (s-join "," (knessy--resource-types-listable-cluster)))
 
 (defun knessy--resource-types-set ()
   (knessy--cache-get
@@ -388,7 +445,19 @@
                          (knessy--utils-kubectl-buffer-name "resource-types-global-cache" nil t t))))
            (buferr-global (knessy--utils-make-buffer
                            (generate-new-buffer-name
-                            (knessy--utils-kubectl-buffer-name "resource-types-global-cache" nil t t t)))))
+                            (knessy--utils-kubectl-buffer-name "resource-types-global-cache" nil t t t))))
+           (buf-listable-namespaced (knessy--utils-make-buffer
+                                     (generate-new-buffer-name
+                                      (knessy--utils-kubectl-buffer-name "resource-types-listable-namespaced-cache" nil t t))))
+           (buferr-listable-namespaced (knessy--utils-make-buffer
+                                        (generate-new-buffer-name
+                                         (knessy--utils-kubectl-buffer-name "resource-types-listable-namespaced-cache" nil t t t))))
+           (buf-listable-cluster (knessy--utils-make-buffer
+                                  (generate-new-buffer-name
+                                   (knessy--utils-kubectl-buffer-name "resource-types-listable-cluster-cache" nil t t))))
+           (buferr-listable-cluster (knessy--utils-make-buffer
+                                     (generate-new-buffer-name
+                                      (knessy--utils-kubectl-buffer-name "resource-types-listable-cluster-cache" nil t t t)))))
       ;; TODO: the actual command should not live here
       ;; TODO (pgu, 19.05.2026): hack
       (run-at-time
@@ -409,7 +478,9 @@
              knessy--cache
              (list :resource-types ctx)
              ;; TODO (pgu, 20.05.2026): bring back the kill
-             (knessy--utils-read-buffer buf t))))))
+             (cons knessy-all-namespaced-resource-types-string
+                   (cons knessy-all-cluster-resource-types-string
+                         (knessy--utils-read-buffer buf t))))))))
 
 
       ;; TODO: the actual command should not live here
@@ -453,7 +524,47 @@
              knessy--cache
              (list :resource-types-global ctx)
              (knessy--utils-set
-              (knessy--utils-read-buffer buf-global t))))))))))
+              (knessy--utils-read-buffer buf-global t)))))))
+
+      ;; TODO: the actual command should not live here
+      (run-at-time
+       4
+       nil
+       (lambda ()
+         (knessy--shell-exec-async2
+          (concat
+           knessy-kubectl
+           " --context "
+           ctx
+           " api-resources --verbs=list --namespaced=true --output name")
+          buf-listable-namespaced
+          buferr-listable-namespaced
+          (lambda ()
+            (message "Refreshed listable namespaced API resources for %s" ctx)
+            (knessy--cache-set
+             knessy--cache
+             (list :resource-types-listable-namespaced ctx)
+             (knessy--utils-read-buffer buf-listable-namespaced t))))))
+
+      ;; TODO: the actual command should not live here
+      (run-at-time
+       5
+       nil
+       (lambda ()
+         (knessy--shell-exec-async2
+          (concat
+           knessy-kubectl
+           " --context "
+           ctx
+           " api-resources --verbs=list --namespaced=false --output name")
+          buf-listable-cluster
+          buferr-listable-cluster
+          (lambda ()
+            (message "Refreshed listable cluster-scoped API resources for %s" ctx)
+            (knessy--cache-set
+             knessy--cache
+             (list :resource-types-listable-cluster ctx)
+             (knessy--utils-read-buffer buf-listable-cluster t)))))))))
 
 
 
@@ -578,37 +689,41 @@
 
 (defun knessy--cache-labels-populate-async (ctx ns resource-type)
   (knessy--log 3 "In knessy--cache-labels-populate-async")
-  (let ((buf (knessy--utils-make-buffer
-              (generate-new-buffer-name
-               (knessy--utils-kubectl-buffer-name "labels-cache"))))
-        (buferr (knessy--utils-make-buffer
-                 (generate-new-buffer-name
-                  (knessy--utils-kubectl-buffer-name "labels-cache" nil nil nil t)))))
-    ;; FIXME: this is probably bad design -- we always force renew, no matter the ttl
-    ;; this should be an aio function that checks the ttl first, and then calls knessy--cache-set
-    (knessy--shell-exec-async2
-     (knessy--kubectl-get-labels-cmd)
-     buf
-     buferr
-     (lambda ()
-       (knessy--log 4 (format "knessy--cache-labels-populate-async: ctx: %s ns: %s resource-type: %s" ctx ns resource-type))
-       (knessy--cache-set
-        knessy--cache
-        ;; TODO: maybe (knessy--namespace-all?) should take no arguments
-        (if (or (knessy--namespace-all? ns)  ;; FIXME: knessy--namespace is "default" here? because buffer-local?
-                (knessy--resource-type-global? resource-type))
-            (list :labels knessy--context knessy--resource-type)
-          (list :labels knessy--context knessy--namespace knessy--resource-type))
-        (apply
-         #'knessy--utils-ht-merge-duplicates-to-sets
-         (mapcar
-          (lambda (s)
-            (if (s-blank? s)
-                (ht)                    ; if there are no labels, the string is an empty string. Just create an empty hashtable instead of parsing
-              (json-parse-string s)))
-          (knessy--utils-read-buffer buf t)))
-        knessy-label-cache-ttl)
-       (knessy--kill-success-buffer-maybe buf)))))
+  ;; labels are per-resource-type; there's no single "get labels" call that
+  ;; makes sense across every kind at once, and label filtering is refused
+  ;; for the *ALL-...* pseudo-types anyway, so skip warming the cache
+  (unless (knessy--resource-type-all-synthetic? resource-type)
+    (let ((buf (knessy--utils-make-buffer
+                (generate-new-buffer-name
+                 (knessy--utils-kubectl-buffer-name "labels-cache"))))
+          (buferr (knessy--utils-make-buffer
+                   (generate-new-buffer-name
+                    (knessy--utils-kubectl-buffer-name "labels-cache" nil nil nil t)))))
+      ;; FIXME: this is probably bad design -- we always force renew, no matter the ttl
+      ;; this should be an aio function that checks the ttl first, and then calls knessy--cache-set
+      (knessy--shell-exec-async2
+       (knessy--kubectl-get-labels-cmd)
+       buf
+       buferr
+       (lambda ()
+         (knessy--log 4 (format "knessy--cache-labels-populate-async: ctx: %s ns: %s resource-type: %s" ctx ns resource-type))
+         (knessy--cache-set
+          knessy--cache
+          ;; TODO: maybe (knessy--namespace-all?) should take no arguments
+          (if (or (knessy--namespace-all? ns)  ;; FIXME: knessy--namespace is "default" here? because buffer-local?
+                  (knessy--resource-type-global? resource-type))
+              (list :labels knessy--context knessy--resource-type)
+            (list :labels knessy--context knessy--namespace knessy--resource-type))
+          (apply
+           #'knessy--utils-ht-merge-duplicates-to-sets
+           (mapcar
+            (lambda (s)
+              (if (s-blank? s)
+                  (ht)                    ; if there are no labels, the string is an empty string. Just create an empty hashtable instead of parsing
+                (json-parse-string s)))
+            (knessy--utils-read-buffer buf t)))
+          knessy-label-cache-ttl)
+         (knessy--kill-success-buffer-maybe buf))))))
 
 
 ;; FIXME: sync label cache renewal steals focus to the buffer with results, same as with main display functions.
