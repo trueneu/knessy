@@ -201,7 +201,7 @@ time of the last restart, or the amount of restarts."
     (unless (eq 'pod (ht-get knessy--resource-type-str->sym rt))
       (user-error "Can only shell into pods!"))
     (knessy-exec-vterm-pod ctx ns name)))
- 
+
 
 (defvar knessy-mode-map
   (let ((map (make-sparse-keymap)))
@@ -419,6 +419,8 @@ in Knessy mode, else lists all existing buffers."
 (defvar knessy--last-selected-context nil)
 (defvar knessy--last-selected-resource-type nil)
 
+(comment
+ (expand-file-name "~/.kube/ttd"))
 
 (defun knessy--select-config-file (filename)
   (interactive
@@ -426,7 +428,7 @@ in Knessy mode, else lists all existing buffers."
   (let ((filename (or filename "~/.kube/config")))
     (if (file-exists-p (expand-file-name filename))
         (progn
-          (setq knessy-kubeconfig filename)
+          (setq knessy-kubeconfig (expand-file-name filename))
           (knessy--caches-populate-async))
 
       (error "Kubectl config file '%s' does not exist!" filename))))

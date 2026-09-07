@@ -14,7 +14,7 @@
 
 ;; TODO: make this an alist?
 (defcustom knessy-column-widths
-  (ht ("NAME" 32)
+  (ht ("NAME" 48)
       ("NAMESPACE" 16)
       ("READY" 5)
       ("RDY" 5)
@@ -25,13 +25,13 @@
       ("CPU(r)" 30)
       ("MEM(r)" 30)
       ("CPU(l)" 30)
-      ("MEM(l)" 30))
+      ("MEM(l)" 30)
+      ("HOSTNAMES" 36))
   "Column widths by column name."
   :type 'sexp
   :group 'knessy)
 
 ;; TODO: make all structures alists again?.. since they're faster than ht, except items collection maybe
-
 ;; FIXME: this won't get updated when knessy-default-view-string is updated...
 (defcustom knessy-default-view-alist
   `(("pods" . "concise"))
