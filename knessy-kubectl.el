@@ -268,95 +268,77 @@
      (cons knessy-all-namespaces-string
        (knessy--kubectl-namespaces)))))
 
-(defun knessy--kubectl-resource-types-list ()
-  (let ((buf (knessy--utils-make-buffer (generate-new-buffer-name (knessy--utils-kubectl-buffer-name "resource-types" nil t t)))))
-    (knessy--shell-exec
-     (s-concat knessy-kubectl
-               " api-resources --output name")
-     buf)
-    (knessy--utils-read-buffer buf)))
+;; Every "which resource types are X" question below (all of them, namespaced
+;; ones, cluster-scoped ones, listable ones...) is answered from a single
+;; `kubectl api-resources -o json' call per context, cached as-is; each
+;; accessor is then just a pure filter/map over that one cached list instead
+;; of a kubectl call of its own.
+(defun knessy--kubectl-api-resources-cmd ()
+  (s-concat knessy-kubectl
+            " --context " knessy--context
+            " api-resources -o json"))
 
-;; TODO: this definitely can be optimized away, the only difference is set vs list
+(defun knessy--kubectl-api-resources-parse (buf)
+  "Parse BUF (output of `kubectl api-resources -o json') into a list of
+alists, one per resource type, each shaped like
+`((:name . FULLY-QUALIFIED-NAME) (:namespaced . BOOL) (:verbs . (VERB ...)))'.
+FULLY-QUALIFIED-NAME matches what `kubectl api-resources --output name'
+prints (e.g. \"deployments.apps\", or just \"nodes\" for core resources)."
+  (let* ((parsed (with-current-buffer buf
+                   (goto-char (point-min))
+                   (json-parse-buffer :object-type 'alist :array-type 'list)))
+         (resources (alist-get 'resources parsed)))
+    (mapcar
+     (lambda (r)
+       (let* ((name (alist-get 'name r))
+              (group (alist-get 'group r)))
+         `((:name . ,(if group (s-concat name "." group) name))
+           (:namespaced . ,(eq t (alist-get 'namespaced r)))
+           (:verbs . ,(alist-get 'verbs r)))))
+     resources)))
 
-;; TODO (pgu, 20.05.2026): also, this should go: better make one call and parse in one go
-;; TODO (pgu, 20.05.2026): no context passed?!
-(defun knessy--kubectl-resource-types-set ()
-  (let ((buf (knessy--utils-make-buffer (generate-new-buffer-name (knessy--utils-kubectl-buffer-name "resource-types-set" nil t t)))))
-    (knessy--shell-exec
-     (s-concat knessy-kubectl
-               " --context " knessy--context
-               " api-resources --output name")
-     buf)
-    (knessy--utils-set
-     (knessy--utils-read-buffer buf))))
+(defun knessy--kubectl-api-resources-list ()
+  "Run and parse `kubectl api-resources' once; see `knessy--kubectl-api-resources-parse'."
+  (let ((buf (knessy--utils-make-buffer (generate-new-buffer-name (knessy--utils-kubectl-buffer-name "api-resources" nil t t)))))
+    (knessy--shell-exec (knessy--kubectl-api-resources-cmd) buf)
+    (prog1 (knessy--kubectl-api-resources-parse buf)
+      (kill-buffer buf))))
 
-(defun knessy--kubectl-resource-types-namespaced-set ()
-  (let ((buf (knessy--utils-make-buffer (generate-new-buffer-name (knessy--utils-kubectl-buffer-name "resource-types-namespaced" nil t t)))))
-    (knessy--shell-exec
-     (s-concat knessy-kubectl
-               " --context " knessy--context
-               " api-resources --output name --namespaced=true")
-     buf)
-    (knessy--utils-set
-     (knessy--utils-read-buffer buf))))
+(defun knessy--api-resources ()
+  (knessy--cache-get
+   knessy--cache
+   (list :api-resources knessy--context)
+   (lambda ()
+     (knessy--kubectl-api-resources-list))))
 
-(defun knessy--kubectl-resource-types-global-set ()
-  (let ((buf (knessy--utils-make-buffer (generate-new-buffer-name (knessy--utils-kubectl-buffer-name "resource-types-global" nil t t)))))
-    (knessy--shell-exec
-     (s-concat knessy-kubectl
-               " --context " knessy--context
-               " api-resources --output name --namespaced=false")
-     buf)
-    (knessy--utils-set
-     (knessy--utils-read-buffer buf))))
+(defun knessy--resource-types ()
+  (cons knessy-all-namespaced-resource-types-string
+        (cons knessy-all-cluster-resource-types-string
+              (mapcar (lambda (r) (asoc-get r :name)) (knessy--api-resources)))))
+
+(defun knessy--resource-types-set ()
+  (knessy--utils-set
+   (mapcar (lambda (r) (asoc-get r :name)) (knessy--api-resources))))
+
+(defun knessy--resource-types-namespaced ()
+  (knessy--utils-set
+   (->> (knessy--api-resources)
+        (-filter (lambda (r) (asoc-get r :namespaced)))
+        (mapcar (lambda (r) (asoc-get r :name))))))
 
 ;; only resource types supporting the "list" verb can be safely combined into
 ;; a single "kubectl get type1,type2,..." call without the whole call failing
-(defun knessy--kubectl-resource-types-listable-namespaced-list ()
-  (let ((buf (knessy--utils-make-buffer (generate-new-buffer-name (knessy--utils-kubectl-buffer-name "resource-types-listable-namespaced" nil t t)))))
-    (knessy--shell-exec
-     (s-concat knessy-kubectl
-               " --context " knessy--context
-               " api-resources --verbs=list --namespaced=true --output name")
-     buf)
-    (knessy--utils-read-buffer buf)))
-
-(defun knessy--kubectl-resource-types-listable-cluster-list ()
-  (let ((buf (knessy--utils-make-buffer (generate-new-buffer-name (knessy--utils-kubectl-buffer-name "resource-types-listable-cluster" nil t t)))))
-    (knessy--shell-exec
-     (s-concat knessy-kubectl
-               " --context " knessy--context
-               " api-resources --verbs=list --namespaced=false --output name")
-     buf)
-    (knessy--utils-read-buffer buf)))
-
-;; TODO: differences between all the kubectl- commands are:
-;;   - buffer names
-;;   - actual command
-;;   - parsing (either straight to list, or hashset, or something)
-
-(defun knessy--resource-types ()
-  (knessy--cache-get
-   knessy--cache
-   (list :resource-types knessy--context)
-   (lambda ()
-     (cons knessy-all-namespaced-resource-types-string
-           (cons knessy-all-cluster-resource-types-string
-                 (knessy--kubectl-resource-types-list))))))
-
 (defun knessy--resource-types-listable-namespaced ()
-  (knessy--cache-get
-   knessy--cache
-   (list :resource-types-listable-namespaced knessy--context)
-   (lambda ()
-     (knessy--kubectl-resource-types-listable-namespaced-list))))
+  (->> (knessy--api-resources)
+       (-filter (lambda (r) (and (asoc-get r :namespaced)
+                                 (member "list" (asoc-get r :verbs)))))
+       (mapcar (lambda (r) (asoc-get r :name)))))
 
 (defun knessy--resource-types-listable-cluster ()
-  (knessy--cache-get
-   knessy--cache
-   (list :resource-types-listable-cluster knessy--context)
-   (lambda ()
-     (knessy--kubectl-resource-types-listable-cluster-list))))
+  (->> (knessy--api-resources)
+       (-filter (lambda (r) (and (not (asoc-get r :namespaced))
+                                 (member "list" (asoc-get r :verbs)))))
+       (mapcar (lambda (r) (asoc-get r :name)))))
 
 (defun knessy--kubectl-all-namespaced-resource-types-joined ()
   "Comma-joined list of every listable namespaced resource type, for the *ALL-NS* view."
@@ -365,27 +347,6 @@
 (defun knessy--kubectl-all-cluster-resource-types-joined ()
   "Comma-joined list of every listable cluster-scoped resource type, for the *ALL-CLUSTER* view."
   (s-join "," (knessy--resource-types-listable-cluster)))
-
-(defun knessy--resource-types-set ()
-  (knessy--cache-get
-   knessy--cache
-   (list :resource-types-set knessy--context)
-   (lambda ()
-     (knessy--kubectl-resource-types-set))))
-
-(defun knessy--resource-types-namespaced ()
-  (knessy--cache-get
-   knessy--cache
-   (list :resource-types-namespaced knessy--context)
-   (lambda ()
-     (knessy--kubectl-resource-types-namespaced-set))))
-
-(defun knessy--resource-types-global ()
-  (knessy--cache-get
-   knessy--cache
-   (list :resource-types-global knessy--context)
-   (lambda ()
-     (knessy--kubectl-resource-types-global-set))))
 
 (defun knessy-cache-clear ()
   "Resets all the Knessy caches."
@@ -424,40 +385,14 @@
  (knessy--cache-resource-types-populate-async))
 
 (defun knessy--cache-resource-types-populate-async ()
-  ;; TODO: this is a nightmare
-
   (dolist (ctx (knessy--contexts))
     (let* ((knessy--context ctx)
            (buf (knessy--utils-make-buffer
                  (generate-new-buffer-name
-                  (knessy--utils-kubectl-buffer-name "resource-types-cache" nil t t))))
+                  (knessy--utils-kubectl-buffer-name "api-resources-cache" nil t t))))
            (buferr (knessy--utils-make-buffer
                     (generate-new-buffer-name
-                     (knessy--utils-kubectl-buffer-name "resource-types-cache" nil t t t))))
-           (buf-namespaced (knessy--utils-make-buffer
-                            (generate-new-buffer-name
-                             (knessy--utils-kubectl-buffer-name "resource-types-namespaced-cache" nil t t))))
-           (buferr-namespaced (knessy--utils-make-buffer
-                               (generate-new-buffer-name
-                                (knessy--utils-kubectl-buffer-name "resource-types-namespaced-cache" nil t t t))))
-           (buf-global (knessy--utils-make-buffer
-                        (generate-new-buffer-name
-                         (knessy--utils-kubectl-buffer-name "resource-types-global-cache" nil t t))))
-           (buferr-global (knessy--utils-make-buffer
-                           (generate-new-buffer-name
-                            (knessy--utils-kubectl-buffer-name "resource-types-global-cache" nil t t t))))
-           (buf-listable-namespaced (knessy--utils-make-buffer
-                                     (generate-new-buffer-name
-                                      (knessy--utils-kubectl-buffer-name "resource-types-listable-namespaced-cache" nil t t))))
-           (buferr-listable-namespaced (knessy--utils-make-buffer
-                                        (generate-new-buffer-name
-                                         (knessy--utils-kubectl-buffer-name "resource-types-listable-namespaced-cache" nil t t t))))
-           (buf-listable-cluster (knessy--utils-make-buffer
-                                  (generate-new-buffer-name
-                                   (knessy--utils-kubectl-buffer-name "resource-types-listable-cluster-cache" nil t t))))
-           (buferr-listable-cluster (knessy--utils-make-buffer
-                                     (generate-new-buffer-name
-                                      (knessy--utils-kubectl-buffer-name "resource-types-listable-cluster-cache" nil t t t)))))
+                     (knessy--utils-kubectl-buffer-name "api-resources-cache" nil t t t)))))
       ;; TODO: the actual command should not live here
       ;; TODO (pgu, 19.05.2026): hack
       (run-at-time
@@ -465,106 +400,16 @@
        nil
        (lambda ()
          (knessy--shell-exec-async2
-          (concat
-           knessy-kubectl
-           " --context "
-           ctx
-           " api-resources --output name")
+          (concat knessy-kubectl " --context " ctx " api-resources -o json")
           buf
           buferr
           (lambda ()
             (message "Refreshed API resources for %s" ctx)
             (knessy--cache-set
              knessy--cache
-             (list :resource-types ctx)
-             ;; TODO (pgu, 20.05.2026): bring back the kill
-             (cons knessy-all-namespaced-resource-types-string
-                   (cons knessy-all-cluster-resource-types-string
-                         (knessy--utils-read-buffer buf t))))))))
-
-
-      ;; TODO: the actual command should not live here
-      (run-at-time
-       2
-       nil
-       (lambda ()
-         (knessy--shell-exec-async2
-          (concat
-           knessy-kubectl
-           " --context "
-           ctx
-           " api-resources --namespaced=true --output name")
-          buf-namespaced
-          buferr-namespaced
-          (lambda ()
-            (message "Refreshed namespaced API resources for %s" ctx)
-            (knessy--cache-set
-             knessy--cache
-             (list :resource-types-namespaced ctx)
-             (knessy--utils-set
-              (knessy--utils-read-buffer buf-namespaced t)))))))
-
-      ;; TODO: the actual command should not live here
-
-      (run-at-time
-       3
-       nil
-       (lambda ()
-         (knessy--shell-exec-async2
-          (concat
-           knessy-kubectl
-           " --context "
-           ctx
-           " api-resources --namespaced=false --output name")
-          buf-global
-          buferr-global
-          (lambda ()
-            (message "Refreshed global API resources for %s" ctx)
-            (knessy--cache-set
-             knessy--cache
-             (list :resource-types-global ctx)
-             (knessy--utils-set
-              (knessy--utils-read-buffer buf-global t)))))))
-
-      ;; TODO: the actual command should not live here
-      (run-at-time
-       4
-       nil
-       (lambda ()
-         (knessy--shell-exec-async2
-          (concat
-           knessy-kubectl
-           " --context "
-           ctx
-           " api-resources --verbs=list --namespaced=true --output name")
-          buf-listable-namespaced
-          buferr-listable-namespaced
-          (lambda ()
-            (message "Refreshed listable namespaced API resources for %s" ctx)
-            (knessy--cache-set
-             knessy--cache
-             (list :resource-types-listable-namespaced ctx)
-             (knessy--utils-read-buffer buf-listable-namespaced t))))))
-
-      ;; TODO: the actual command should not live here
-      (run-at-time
-       5
-       nil
-       (lambda ()
-         (knessy--shell-exec-async2
-          (concat
-           knessy-kubectl
-           " --context "
-           ctx
-           " api-resources --verbs=list --namespaced=false --output name")
-          buf-listable-cluster
-          buferr-listable-cluster
-          (lambda ()
-            (message "Refreshed listable cluster-scoped API resources for %s" ctx)
-            (knessy--cache-set
-             knessy--cache
-             (list :resource-types-listable-cluster ctx)
-             (knessy--utils-read-buffer buf-listable-cluster t)))))))))
+             (list :api-resources ctx)
+             (knessy--kubectl-api-resources-parse buf))
+            (knessy--kill-success-buffer-maybe buf))))))))
 
 
 
