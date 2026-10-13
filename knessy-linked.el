@@ -46,7 +46,7 @@ event for nearly everything that happens to a resource."
   :group 'knessy)
 
 (defconst knessy--linked-cluster-scoped-kinds
-  '("Node" "PersistentVolume" "StorageClass" "PriorityClass")
+  '("Node" "PersistentVolume" "StorageClass" "PriorityClass" "ClusterSecretStore")
   "Kinds that references in specs may point to, which have no namespace.")
 
 ;; ---------------------------------------------------------------------------
@@ -193,6 +193,10 @@ pod templates of any workload kind (including CRDs) are covered."
                    ;; e.g. ingress backends
                    ("service"
                     (add "Service" (or (knessy--linked-get v "namespace") ns)
+                         (knessy--linked-get v "name")))
+                   ;; external secret -> its (cluster) secret store
+                   ("secretStoreRef"
+                    (add (or (knessy--linked-get v "kind") "SecretStore") ns
                          (knessy--linked-get v "name")))
                    ;; endpoints -> pod, hpa -> workload, pv -> pvc
                    ((or "targetRef" "scaleTargetRef" "claimRef")
