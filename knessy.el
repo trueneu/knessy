@@ -1140,7 +1140,6 @@ If omitted, use the current one (for synchronous calls)."
 Made so spamming refreshes doesn't result in 100 of kubectl calls.")
 
 (aio-defun knessy--display2-aio ()
-  (interactive)
   (knessy--log 3 (format "Display AIO called at %s" (current-time-string)))
   (unless knessy--refresh-in-progress
     (if knessy--debug
