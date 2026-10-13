@@ -45,11 +45,11 @@ be empty), instead of the columns of a single resource type."
   :type 'string
   :group 'knessy)
 
-(defcustom knessy-connected-resource-type-string "*CONNECTED*"
-  "String depicting the pseudo resource-type of the connected resources view.
+(defcustom knessy-linked-resource-type-string "*LINKED*"
+  "String depicting the pseudo resource-type of the linked resources view.
 
 When the resource-type is set to this value, Knessy lists the resources
-connected (by ownership or references) to `knessy--connected-root', instead
+linked (by ownership or references) to `knessy--linked-root', instead
 of the resources of a single type."
   :type 'string
   :group 'knessy)
@@ -65,7 +65,7 @@ of the resources of a single type."
 (load "./knessy-comparators.el")
 (load "./knessy-views.el")
 (load "./knessy-cache.el")
-(load "./knessy-connected.el")
+(load "./knessy-linked.el")
 (load "./knessy-env.el")
 
 (require 'knessy-kubectl)
@@ -77,7 +77,7 @@ of the resources of a single type."
 (require 'knessy-comparators)
 (require 'knessy-views)
 (require 'knessy-cache)
-(require 'knessy-connected)
+(require 'knessy-linked)
 (require 'knessy-env)
 
 (load "./knessy-tests.el")
@@ -400,16 +400,16 @@ in Knessy mode, else lists all existing buffers."
 (defun knessy--resource-type-all-cluster? (resource-type)
   (s-equals? resource-type knessy-all-cluster-resource-types-string))
 
-(defun knessy--resource-type-connected? (resource-type)
-  (s-equals? resource-type knessy-connected-resource-type-string))
+(defun knessy--resource-type-linked? (resource-type)
+  (s-equals? resource-type knessy-linked-resource-type-string))
 
 (defun knessy--resource-type-all-synthetic? (resource-type)
   "T if RESOURCE-TYPE is one of the *ALL-...* pseudo resource-types,
-or the *CONNECTED* one. None of them is a real resource type that kubectl
+or the *LINKED* one. None of them is a real resource type that kubectl
 can be called with, or that label/field selectors make sense for."
   (or (knessy--resource-type-all-namespaced? resource-type)
       (knessy--resource-type-all-cluster? resource-type)
-      (knessy--resource-type-connected? resource-type)))
+      (knessy--resource-type-linked? resource-type)))
 
 ;; TODO: all these should be customizable
 ;; TODO: these should be set from the actual available resources,
@@ -830,8 +830,8 @@ can be called with, or that label/field selectors make sense for."
               (error "Object spec has no selector"))
             (error "Object has no spec"))))))
 
-(defun knessy--jump-connected ()
-  "Show all the resources connected (by ownership or references) to the selected one."
+(defun knessy--jump-linked ()
+  "Show all the resources linked (by ownership or references) to the selected one."
   (interactive)
   (let* ((selected-id (tabulated-list-get-id))
          (ns (knessy--id-ns selected-id))
@@ -839,10 +839,10 @@ can be called with, or that label/field selectors make sense for."
          (name (knessy--id-name selected-id)))
     (unless selected-id
       (user-error "No resource on this line"))
-    (knessy--set-resource-type knessy-connected-resource-type-string)
+    (knessy--set-resource-type knessy-linked-resource-type-string)
     (when ns
       (knessy--set-namespace ns))
-    (setq knessy--connected-root (list ns rt name))
+    (setq knessy--linked-root (list ns rt name))
     (setq knessy--field-selectors nil)
     (setq knessy--label-selectors nil)
     (knessy--display2)))
@@ -974,7 +974,7 @@ can be called with, or that label/field selectors make sense for."
   knessy-jump () "Jump"
   ["Jump to"
    ("c" "children" knessy--jump-children)
-   ("C" "connected" knessy--jump-connected)
+   ("l" "linked" knessy--jump-linked)
    ("o" "owner" knessy--jump-owner)
    ("n" "node" knessy--jump-node)
    ("p" "node pods" knessy--jump-node-pods)
@@ -1213,8 +1213,8 @@ Made so spamming refreshes doesn't result in 100 of kubectl calls.")
   (interactive "P")
   (message (knessy--random-choice knessy-display-start-messages))
   (knessy--env-ring-push (knessy--env))
-  (cond ((knessy--resource-type-connected? knessy--resource-type)
-         (knessy--display-connected))
+  (cond ((knessy--resource-type-linked? knessy--resource-type)
+         (knessy--display-linked))
         (sync
          (knessy--display2-sync))
         (t
