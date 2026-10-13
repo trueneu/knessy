@@ -1,5 +1,6 @@
 ;; -*- lexical-binding: t; -*-
 
+(require 'cl-lib)
 (require 'knessy-utils)
 
 ;; TODO: include labels as filters here?
@@ -362,7 +363,9 @@ prints (e.g. \"deployments.apps\", or just \"nodes\" for core resources)."
 ;; kubectl commands
 ;; destinations
 (defun knessy--cache-namespaces-populate-async ()
-  (dolist (ctx (knessy--contexts))
+  (dolist (ctx (cl-remove-if
+                (lambda (ctx) (knessy--cache-fresh-p knessy--cache (list :namespaces ctx)))
+                (knessy--contexts)))
     (let ((buf (knessy--utils-make-buffer
                 (generate-new-buffer-name
                  (knessy--utils-kubectl-buffer-name "namespace-cache" nil t t))))
@@ -389,7 +392,9 @@ prints (e.g. \"deployments.apps\", or just \"nodes\" for core resources)."
  (knessy--cache-resource-types-populate-async))
 
 (defun knessy--cache-resource-types-populate-async ()
-  (dolist (ctx (knessy--contexts))
+  (dolist (ctx (cl-remove-if
+                (lambda (ctx) (knessy--cache-fresh-p knessy--cache (list :api-resources ctx)))
+                (knessy--contexts)))
     (let* ((knessy--context ctx)
            (buf (knessy--utils-make-buffer
                  (generate-new-buffer-name

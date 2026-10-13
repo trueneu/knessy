@@ -16,6 +16,18 @@
 (defun knessy--cache-set (table keys value &optional ttl)
   (knessy--cache-get table keys (lambda () value) ttl t))
 
+(defun knessy--cache-fresh-p (table keys)
+  "Return non-nil if TABLE has unexpired data at KEYS.
+Unlike `knessy--cache-get', never creates entries or refreshes anything."
+  (let* ((target-table (let ((tbl table))
+                         (dolist (key keys tbl)
+                           (setq tbl (and (hash-table-p tbl) (ht-get tbl key))))))
+         (refresh-at (and (hash-table-p target-table) (ht-get target-table :refresh-at))))
+    (and (hash-table-p target-table)
+         (ht-get target-table :data)
+         refresh-at
+         (time-less-p (current-time) refresh-at))))
+
 (defun knessy--cache-get (table keys refresh-fn &optional ttl force)
   (knessy--utils-ht-init table keys)
   (let* ((ttl (if ttl ttl knessy-cache-ttl-default))
