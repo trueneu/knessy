@@ -22,8 +22,10 @@
 ;;    Only forward edges are followed from there on.
 ;; 4. incoming:    things that refer to the core (a service selecting a pod, an
 ;;    HPA targeting a deployment...), and things that refer to *those*
-;;    (an ingress pointing to the service). Only incoming edges are followed
-;;    from there on.
+;;    (an ingress or an HTTPRoute pointing to the service). Only incoming
+;;    edges are followed from there on, except that the gateways of the
+;;    routes found are included too, along with what they refer to (TLS
+;;    certificates), but not what else is attached to them.
 
 (require 'cl-lib)
 (require 'dash)
@@ -199,7 +201,21 @@ pod templates of any workload kind (including CRDs) are covered."
                          (knessy--linked-get v "name")))))
                 ((and (vectorp v) (equal k "imagePullSecrets"))
                  (seq-doseq (e v)
-                   (add "Secret" ns (knessy--linked-get e "name"))))))))
+                   (add "Secret" ns (knessy--linked-get e "name"))))
+                ;; gateway API routes: what they send traffic to, and the
+                ;; gateways they are attached to
+                ;; gateway listeners: the TLS certificates (secrets by default)
+                ((and (vectorp v) (equal k "certificateRefs"))
+                 (seq-doseq (e v)
+                   (add (or (knessy--linked-get e "kind") "Secret")
+                        (or (knessy--linked-get e "namespace") ns)
+                        (knessy--linked-get e "name"))))
+                ((and (vectorp v) (member k '("backendRefs" "parentRefs")))
+                 (seq-doseq (e v)
+                   (add (or (knessy--linked-get e "kind")
+                            (if (equal k "backendRefs") "Service" "Gateway"))
+                        (or (knessy--linked-get e "namespace") ns)
+                        (knessy--linked-get e "name"))))))))
         (maphash (lambda (k v)
                    ;; metadata is handled separately (owners); the data of
                    ;; configmaps and secrets is user content, not references
@@ -243,12 +259,27 @@ pod templates of any workload kind (including CRDs) are covered."
   (ht-get (knessy--ci-owned-by idx) (knessy--linked-uid obj)))
 
 (defun knessy--linked-forward (idx obj)
+  "Objects that OBJ refers to, and, for secrets, their owners.
+Secrets are often generated from something (an ExternalSecret, a
+cert-manager Certificate), which is worth showing. For other kinds the owners
+of referenced objects are left out: that'd drag in unrelated things, like the
+StatefulSet that owns a PVC."
   (delq nil
-        (mapcar (lambda (target) (apply #'knessy--ci-lookup idx target))
-                (knessy--linked-forward-targets idx obj))))
+        (append
+         (mapcar (lambda (target) (apply #'knessy--ci-lookup idx target))
+                 (knessy--linked-forward-targets idx obj))
+         (when (equal (knessy--linked-kind obj) "Secret")
+           (knessy--linked-owners idx obj)))))
 
 (defun knessy--linked-incoming (idx obj)
   (ht-get (knessy--ci-referrers idx) (knessy--linked-key obj)))
+
+(defun knessy--linked-gateways (idx obj)
+  "The gateways that OBJ (a route) is attached to."
+  (delq nil
+        (mapcar (lambda (target) (apply #'knessy--ci-lookup idx target))
+                (-filter (lambda (target) (equal (car target) "Gateway"))
+                         (knessy--linked-forward-targets idx obj)))))
 
 ;; ---------------------------------------------------------------------------
 ;; The walk
@@ -274,7 +305,8 @@ EXCLUDE (both lists of objects) are part of the result."
 (defun knessy--linked-graph (idx root)
   "All objects linked to ROOT (see the commentary on top of the file).
 The result is ordered: ancestors (top-most first), ROOT, descendants,
-forward references, incoming references."
+forward references, incoming references, gateways of incoming routes,
+what those gateways refer to."
   (let* ((ancestors (knessy--linked-closure
                      (list root) (lambda (o) (knessy--linked-owners idx o))))
          (descendants (knessy--linked-closure
@@ -285,8 +317,18 @@ forward references, incoming references."
                    core (lambda (o) (knessy--linked-forward idx o))))
          (incoming (knessy--linked-closure
                     core (lambda (o) (knessy--linked-incoming idx o))
-                    forward)))
-    (append (reverse ancestors) (list root) descendants forward incoming)))
+                    forward))
+         ;; the gateways of the incoming routes; their own incoming edges
+         ;; (all the other routes attached to them) are not followed
+         (gateways (knessy--linked-closure
+                    incoming (lambda (o) (knessy--linked-gateways idx o))
+                    (append core forward)))
+         ;; what the gateways refer to (TLS certificates)
+         (gateway-refs (knessy--linked-closure
+                        gateways (lambda (o) (knessy--linked-forward idx o))
+                        (append core forward incoming))))
+    (append (reverse ancestors) (list root) descendants forward incoming
+            gateways gateway-refs)))
 
 ;; ---------------------------------------------------------------------------
 ;; kubectl glue
@@ -358,16 +400,24 @@ Caches populated by older versions of Knessy don't have them."
                 (format "-n %s get %s" (shell-quote-argument ns) (s-join "," types)))))
     (append (knessy--linked-get list "items") nil)))
 
-(defun knessy--linked-make-resolver (idx resources)
-  "A resolver for IDX that fetches cluster-scoped objects (and only those) on demand."
+(defun knessy--linked-make-resolver (idx resources dumped-ns)
+  "A resolver for IDX that fetches objects missing from it on demand.
+Only cluster-scoped objects and objects of namespaces other than DUMPED-NS
+are fetched: anything else that's not in IDX doesn't exist (e.g. an optional
+configmap)."
   (let ((tried (ht)))
     (lambda (kind ns name)
-      (when (and (null ns) kind name (not (ht-contains? tried (cons kind name))))
-        (ht-set tried (cons kind name) t)
+      (when (and kind name
+                 (or (null ns) (not (equal ns dumped-ns)))
+                 (not (ht-contains? tried (list kind ns name))))
+        (ht-set tried (list kind ns name) t)
         (when-let* ((resource (knessy--linked-find-resource resources kind))
                     (obj (ignore-errors
                            (knessy--linked-kubectl-json
-                            (format "get %s/%s" (asoc-get resource :name) (shell-quote-argument name))))))
+                            (format "%s get %s/%s"
+                                    (if ns (format "-n %s" (shell-quote-argument ns)) "")
+                                    (asoc-get resource :name)
+                                    (shell-quote-argument name))))))
           (knessy--ci-add idx obj))))))
 
 (defun knessy--linked-ids (ns rt name)
@@ -378,7 +428,7 @@ i.e. (NS . (RT . NAME))."
          (root-resource (or (knessy--linked-find-resource resources rt)
                             (user-error "Unknown resource type %s" rt)))
          (idx (knessy--ci-make)))
-    (setf (knessy--ci-resolver idx) (knessy--linked-make-resolver idx resources))
+    (setf (knessy--ci-resolver idx) (knessy--linked-make-resolver idx resources ns))
     (when ns
       (dolist (obj (knessy--linked-fetch-namespace ns resources))
         (knessy--ci-add idx obj))
