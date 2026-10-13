@@ -1,7 +1,7 @@
 ;; -*- lexical-binding: t; -*-
 
 (defun knessy--env ()
-  (list knessy-kubeconfig knessy--context knessy--namespace knessy--resource-type knessy--label-selectors knessy--field-selectors knessy--view))
+  (list knessy-kubeconfig knessy--context knessy--namespace knessy--resource-type knessy--label-selectors knessy--field-selectors knessy--view knessy--connected-root))
 
 (defun knessy--env-entry->str (env)
   (let* ((config (nth 0 env))
@@ -10,11 +10,13 @@
          (rt (nth 3 env))
          (labels (nth 4 env))
          (fields (nth 5 env))
-         (view (nth 6 env)))
+         (view (nth 6 env))
+         (connected-root (nth 7 env)))
     (s-join ":" (list config ctx ns rt
                       (knessy--utils-alist->str-= labels)
                       (knessy--utils-alist->str-= fields)
-                      view))))
+                      view
+                      (s-join "/" (delq nil connected-root))))))
 
 
 (defun knessy--set-env (env)
@@ -31,7 +33,8 @@
       (setq
        knessy-kubeconfig config
        knessy--label-selectors labels
-       knessy--field-selectors fields)
+       knessy--field-selectors fields
+       knessy--connected-root (nth 7 env))
       (knessy--set-context ctx)
       (knessy--set-namespace ns)
       (knessy--set-resource-type rt)

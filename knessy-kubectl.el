@@ -281,7 +281,9 @@
 (defun knessy--kubectl-api-resources-parse (buf)
   "Parse BUF (output of `kubectl api-resources -o json') into a list of
 alists, one per resource type, each shaped like
-`((:name . FULLY-QUALIFIED-NAME) (:namespaced . BOOL) (:verbs . (VERB ...)))'.
+`((:name . FULLY-QUALIFIED-NAME) (:kind . KIND) (:group . GROUP)
+  (:namespaced . BOOL) (:verbs . (VERB ...)))'.
+GROUP is an empty string for the core API group.
 FULLY-QUALIFIED-NAME matches what `kubectl api-resources --output name'
 prints (e.g. \"deployments.apps\", or just \"nodes\" for core resources)."
   (let* ((parsed (with-current-buffer buf
@@ -293,6 +295,8 @@ prints (e.g. \"deployments.apps\", or just \"nodes\" for core resources)."
        (let* ((name (alist-get 'name r))
               (group (alist-get 'group r)))
          `((:name . ,(if group (s-concat name "." group) name))
+           (:kind . ,(alist-get 'kind r))
+           (:group . ,(or group ""))
            (:namespaced . ,(eq t (alist-get 'namespaced r)))
            (:verbs . ,(alist-get 'verbs r)))))
      resources)))

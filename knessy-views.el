@@ -133,6 +133,10 @@
                      (:spec . "'{range .items[*]}{.kind}|{.metadata.namespace}|{.metadata.name}{\"\\n\"}{end}'")
                      (:headers . ((:static . ("KIND" "NAMESPACE" "NAME")))))))))
 
+      ((cons knessy-connected-resource-type-string knessy-default-view-string)
+       `((:columns . ("RESOURCE-TYPE" "NAMESPACE" "NAME"))
+         (:widths . ,(ht ("RESOURCE-TYPE" 40)))))
+
       ((cons knessy-all-cluster-resource-types-string knessy-default-view-string)
        `((:columns . ("NAME" "KIND"))
          (:widths . ,(ht ("KIND" 32)))
