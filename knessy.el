@@ -1459,7 +1459,7 @@ context and namespace."
 
 ;; FIXME: no hooks run from yaml-ts-mode?.. keybindings are missing
 ;; also, are yaml-ts-mode and json-ts-mode standard and default now?
-(define-derived-mode knessy-yaml-mode yaml-ts-mode "Knessy-YAML"
+(define-derived-mode knessy-yaml-mode yaml-mode "Knessy-YAML"
   "Mode for Knessy buffers with YAML objects.")
 
 (define-derived-mode knessy-json-mode json-ts-mode "Knessy-JSON"
@@ -1477,9 +1477,9 @@ context and namespace."
 (add-hook
  'knessy-mode-hook
  (lambda ()
-   (when display-line-numbers
+   (when (and (boundp 'display-line-numbers) display-line-numbers)
      (display-line-numbers-mode -1))
-   (when persp-mode
+   (when (and (boundp 'persp-mode) persp-mode)
      (persp-add-buffer (current-buffer)))))
 
 (comment
