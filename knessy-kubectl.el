@@ -77,7 +77,9 @@
   (let ((cmd (s-concat
               knessy-kubectl
               (s-concat " --context " knessy--context)
-              (s-concat " -n " ns)
+              (if ns
+                  (s-concat " -n " ns)
+                "")
               " delete "
               (s-concat resource-type "/" name " ")
               (if force?
