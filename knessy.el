@@ -546,11 +546,41 @@ can be called with, or that label/field selectors make sense for."
   (when knessy-reset-field-selectors-on-namespace-change
     (setq knessy--field-selectors '())))
 
+(defun knessy--namespace-completion-table (namespaces)
+  "Completion table for NAMESPACES with category `knessy-namespace'."
+  (lambda (string pred action)
+    (if (eq action 'metadata)
+        '(metadata (category . knessy-namespace))
+      (complete-with-action action namespaces string pred))))
+
 (defun knessy--select-namespace ()
   (interactive)
   (let ((new-ns (completing-read "Namespace: "
-                                 (knessy--namespaces))))
+                                 (knessy--namespace-completion-table
+                                  (knessy--namespaces)))))
     (knessy--set-namespace new-ns)))
+
+(defun knessy--embark-namespace-describe (ns)
+  "Describe namespace NS."
+  (interactive "sNamespace: ")
+  (when (equal ns knessy-all-namespaces-string)
+    (user-error "Not a single namespace"))
+  (knessy--describe-object nil "namespaces" ns))
+
+(defun knessy--embark-namespace-edit (ns)
+  "Edit namespace NS as YAML."
+  (interactive "sNamespace: ")
+  (when (equal ns knessy-all-namespaces-string)
+    (user-error "Not a single namespace"))
+  (knessy--edit-object nil "namespaces" ns))
+
+(with-eval-after-load 'embark
+  (defvar-keymap knessy-embark-namespace-map
+    :doc "Embark actions for Knessy namespace candidates."
+    :parent embark-general-map
+    "d" #'knessy--embark-namespace-describe
+    "e" #'knessy--embark-namespace-edit)
+  (add-to-list 'embark-keymap-alist '(knessy-namespace . knessy-embark-namespace-map)))
 
 (defun knessy--set-resource-type (resource-type)
   (setq knessy--resource-type resource-type)
@@ -654,11 +684,14 @@ can be called with, or that label/field selectors make sense for."
 
 (defun knessy-edit (&optional json?)
   (interactive "P")
-  (let* ((selected-id (tabulated-list-get-id))
-         (ns (knessy--id-ns selected-id))
-         (rt (knessy--id-rt selected-id))
-         (name (knessy--id-name selected-id))
-         (current-env (knessy--env))
+  (let ((selected-id (tabulated-list-get-id)))
+    (knessy--edit-object (knessy--id-ns selected-id)
+                         (knessy--id-rt selected-id)
+                         (knessy--id-name selected-id)
+                         json?)))
+
+(defun knessy--edit-object (ns rt name &optional json?)
+  (let* ((current-env (knessy--env))
          filename
          file-buf)
     (let* ((temporary-file-directory knessy-temp-file-dir))
@@ -686,11 +719,13 @@ can be called with, or that label/field selectors make sense for."
 
 (defun knessy-describe ()
   (interactive "")
-  (let* ((selected-id (tabulated-list-get-id))
-         (ns (knessy--id-ns selected-id))
-         (rt (knessy--id-rt selected-id))
-         (name (knessy--id-name selected-id))
-         (obj-buf (knessy--kubectl-describe-object-sync ns rt name)))
+  (let ((selected-id (tabulated-list-get-id)))
+    (knessy--describe-object (knessy--id-ns selected-id)
+                             (knessy--id-rt selected-id)
+                             (knessy--id-name selected-id))))
+
+(defun knessy--describe-object (ns rt name)
+  (let ((obj-buf (knessy--kubectl-describe-object-sync ns rt name)))
     (with-current-buffer obj-buf
       (knessy-describe-mode)
       (goto-char (point-min)))
