@@ -1410,7 +1410,9 @@ Made so spamming refreshes doesn't result in 100 of kubectl calls.")
   ;; (add-hook 'tabulated-list-revert-hook #'knessy--display-aio)
 
   ;; FIXME: hack to work around my kubel hacks
-  (setq mode-line-misc-info '())
+  ;; `setq-local': `mode-line-misc-info' is not buffer-local by default, a plain
+  ;; `setq' replaced it for all the buffers, `global-mode-string' included
+  (setq-local mode-line-misc-info '())
   (add-to-list 'mode-line-misc-info
                '(:eval
                  (when (eq 'knessy-mode (knessy--buffer-mode))
