@@ -553,8 +553,14 @@ can be called with, or that label/field selectors make sense for."
         '(metadata (category . knessy-namespace))
       (complete-with-action action namespaces string pred))))
 
+(defvar knessy--namespace-select-buffer nil
+  "Knessy buffer from which the namespace was last being selected.
+Embark actions may run with another buffer current (e.g. the describe buffer
+left by a previous action), whose buffer-local context is not the one chosen.")
+
 (defun knessy--select-namespace ()
   (interactive)
+  (setq knessy--namespace-select-buffer (current-buffer))
   (let ((new-ns (completing-read "Namespace: "
                                  (knessy--namespace-completion-table
                                   (knessy--namespaces)))))
@@ -565,14 +571,20 @@ can be called with, or that label/field selectors make sense for."
   (interactive "sNamespace: ")
   (when (equal ns knessy-all-namespaces-string)
     (user-error "Not a single namespace"))
-  (knessy--describe-object nil "namespaces" ns))
+  (with-current-buffer (if (buffer-live-p knessy--namespace-select-buffer)
+                           knessy--namespace-select-buffer
+                         (current-buffer))
+    (knessy--describe-object nil "namespaces" ns)))
 
 (defun knessy--embark-namespace-edit (ns)
   "Edit namespace NS as YAML."
   (interactive "sNamespace: ")
   (when (equal ns knessy-all-namespaces-string)
     (user-error "Not a single namespace"))
-  (knessy--edit-object nil "namespaces" ns))
+  (with-current-buffer (if (buffer-live-p knessy--namespace-select-buffer)
+                           knessy--namespace-select-buffer
+                         (current-buffer))
+    (knessy--edit-object nil "namespaces" ns)))
 
 (with-eval-after-load 'embark
   (defvar-keymap knessy-embark-namespace-map
