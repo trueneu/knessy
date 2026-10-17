@@ -3,9 +3,16 @@
 (defun knessy--env ()
   (list knessy-kubeconfig knessy--context knessy--namespace knessy--resource-type knessy--label-selectors knessy--field-selectors knessy--view knessy--linked-root))
 
-(defun knessy--linked-root->str (root)
-  "Format linked ROOT, a (namespace resource-type name) list, as ns/type/name."
-  (s-join "/" (delq nil root)))
+(defun knessy--linked-root->str (root &optional short-context)
+  "Format linked ROOT, a (namespace resource-type name) list, as ns/type/name.
+If SHORT-CONTEXT is non-nil, the resource type is shortened for display using
+the api-resources of that context; see `knessy--resource-type-short'."
+  (pcase-let ((`(,ns ,rt ,name) root))
+    (s-join "/" (delq nil (list ns
+                                (if (and rt short-context)
+                                    (knessy--resource-type-short rt short-context)
+                                  rt)
+                                name)))))
 
 (defun knessy--env-entry->str (env)
   (let* ((config (nth 0 env))
@@ -223,7 +230,7 @@ originating knessy buffer, updates the ring's read position, and redisplays."
                               (or (nth 6 entry) "")
                               ;; the root is only meaningful for the linked view
                               (if (equal (nth 3 entry) knessy-linked-resource-type-string)
-                                  (knessy--linked-root->str (nth 7 entry))
+                                  (knessy--linked-root->str (nth 7 entry) (nth 1 entry))
                                 "")))))
                    indices))
          (buf (get-buffer-create "*knessy-env-history*")))

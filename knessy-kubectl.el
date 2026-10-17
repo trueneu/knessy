@@ -285,7 +285,7 @@
   "Parse BUF (output of `kubectl api-resources -o json') into a list of
 alists, one per resource type, each shaped like
 `((:name . FULLY-QUALIFIED-NAME) (:kind . KIND) (:group . GROUP)
-  (:namespaced . BOOL) (:verbs . (VERB ...)))'.
+  (:short-names . (SHORT-NAME ...)) (:namespaced . BOOL) (:verbs . (VERB ...)))'.
 GROUP is an empty string for the core API group.
 FULLY-QUALIFIED-NAME matches what `kubectl api-resources --output name'
 prints (e.g. \"deployments.apps\", or just \"nodes\" for core resources)."
@@ -300,6 +300,7 @@ prints (e.g. \"deployments.apps\", or just \"nodes\" for core resources)."
          `((:name . ,(if group (s-concat name "." group) name))
            (:kind . ,(alist-get 'kind r))
            (:group . ,(or group ""))
+           (:short-names . ,(alist-get 'shortNames r))
            (:namespaced . ,(eq t (alist-get 'namespaced r)))
            (:verbs . ,(alist-get 'verbs r)))))
      resources)))
@@ -317,6 +318,44 @@ prints (e.g. \"deployments.apps\", or just \"nodes\" for core resources)."
    (list :api-resources knessy--context)
    (lambda ()
      (knessy--kubectl-api-resources-list))))
+
+(defcustom knessy-use-short-resource-type-names t
+  "If non-nil, show short resource type names (e.g. \"deploy\") where Knessy
+displays them; if nil, always show the full names.
+The short names are still fetched and parsed either way."
+  :type 'boolean
+  :group 'knessy)
+
+(defcustom knessy-resource-type-short-names '()
+  "Alist of fully qualified resource type name to the short name to display.
+Takes precedence over the short names `kubectl api-resources' reports, e.g.
+`((\"deployments.apps\" . \"dep\"))'."
+  :type '(alist :key-type string :value-type string)
+  :group 'knessy)
+
+(defun knessy--resource-type-short (resource-type &optional context)
+  "Return a short display name for RESOURCE-TYPE, for display only.
+Looks, in order, at `knessy-resource-type-short-names', the first short name
+kubectl reports for the type, and the type name with its API group stripped.
+Uses the api-resources cached for CONTEXT (default: the current one) and never
+runs kubectl: if they're not cached, or the type is unknown, returns
+RESOURCE-TYPE unchanged. Always returns RESOURCE-TYPE unchanged if
+`knessy-use-short-resource-type-names' is nil."
+  (let* ((context (or context knessy--context))
+         (keys (list :api-resources context))
+         (resource (and knessy-use-short-resource-type-names
+                        (knessy--cache-fresh-p knessy--cache keys)
+                        (-find (lambda (r) (equal (asoc-get r :name) resource-type))
+                               (knessy--cache-get knessy--cache keys #'ignore)))))
+    (or (and knessy-use-short-resource-type-names
+             (asoc-get knessy-resource-type-short-names resource-type))
+        (and resource
+             (or (car (asoc-get resource :short-names))
+                 (let ((group (asoc-get resource :group)))
+                   (if (s-blank? group)
+                       resource-type
+                     (s-chop-suffix (s-concat "." group) resource-type)))))
+        resource-type)))
 
 (defun knessy--resource-types ()
   (cons knessy-all-namespaced-resource-types-string
