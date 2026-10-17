@@ -647,7 +647,7 @@ SHORT is empty if there's no short name worth showing or
 Fields have fixed widths so they line up between candidates."
     (when-let* ((fields (knessy--resource-type-annotation-fields cand)))
       (marginalia--fields
-       ((nth 0 fields) :width 8 :face 'marginalia-key)
+       ((nth 0 fields) :width 15 :truncate 15 :face 'marginalia-key)
        ((nth 1 fields) :width 26 :truncate 26 :face 'marginalia-documentation)
        ((nth 2 fields) :width 10 :face 'marginalia-type))))
   (add-to-list 'marginalia-annotators
