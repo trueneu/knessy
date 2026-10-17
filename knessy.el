@@ -596,6 +596,9 @@ left by a previous action), whose buffer-local context is not the one chosen.")
 
 (defun knessy--set-resource-type (resource-type)
   (setq knessy--resource-type resource-type)
+  ;; the root only makes sense for the linked view, don't carry it elsewhere
+  (unless (knessy--resource-type-linked? resource-type)
+    (setq knessy--linked-root nil))
   (setq knessy--view
         (or (ht-get knessy--last-selected-view knessy--resource-type nil)
             (asoc-get knessy-default-view-alist knessy--resource-type knessy-default-view-string)))
