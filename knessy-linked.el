@@ -98,7 +98,9 @@ event for nearly everything that happens to a resource."
   (owned-by (ht))                       ; owner uid -> objects it owns
   (referrers (ht))                      ; (KIND NS NAME) -> objects referring to it
   (pods nil)
-  (resolver nil))                       ; (KIND NS NAME) -> object, fetched on demand
+  (dumped-ns nil)                       ; the namespace that all the objects were listed from
+  (requested (ht))                      ; (KIND NS NAME) of objects that were looked up in vain
+  (pending nil))                        ; the ones of those that are worth fetching
 
 (defun knessy--ci-add (idx obj)
   "Register OBJ in IDX. Returns the registered object (OBJ unless already known)."
@@ -115,10 +117,24 @@ event for nearly everything that happens to a resource."
                       (cons obj (ht-get (knessy--ci-owned-by idx) owner-uid)))))
           obj))))
 
+(defun knessy--ci-request (idx kind ns name)
+  "Note that the object (KIND NS NAME) is missing from IDX and should be fetched.
+Only cluster-scoped objects and objects of namespaces other than the dumped one
+are worth fetching: anything else that's not in IDX doesn't exist (e.g. an
+optional configmap)."
+  (let ((key (list kind ns name)))
+    (when (and kind name
+               (or (null ns) (not (equal ns (knessy--ci-dumped-ns idx))))
+               (not (ht-contains? (knessy--ci-requested idx) key)))
+      (ht-set (knessy--ci-requested idx) key t)
+      (push key (knessy--ci-pending idx)))))
+
 (defun knessy--ci-lookup (idx kind ns name)
+  "The object (KIND NS NAME) if IDX has it. If not, it's requested, so that it's
+there after the next round of fetching (see `knessy--linked-ids-aio')."
   (or (ht-get (knessy--ci-by-key idx) (list kind ns name))
-      (when-let* ((resolver (knessy--ci-resolver idx)))
-        (funcall resolver kind ns name))))
+      (progn (knessy--ci-request idx kind ns name)
+             nil)))
 
 ;; ---------------------------------------------------------------------------
 ;; Edges
@@ -338,27 +354,47 @@ what those gateways refer to."
 ;; kubectl glue
 ;; ---------------------------------------------------------------------------
 
-(defun knessy--linked-kubectl-json (args)
-  "Run `kubectl ARGS -o json' in the current context and return the parsed output.
-Signals an error if there's no output at all. Partial output is accepted,
-because kubectl exits non-zero if it can't list just one of many types."
-  (let ((buf (generate-new-buffer " *knessy-linked*" t))
-        (errfile (make-temp-file "knessy-linked-stderr")))
-    (unwind-protect
-        (let ((cmd (s-concat knessy-kubectl " --context " knessy--context " " args " -o json")))
-          (knessy--log 3 cmd)
-          (with-environment-variables (("KUBECONFIG" knessy-kubeconfig))
-            (call-process-shell-command cmd nil (list buf errfile) nil))
-          (with-current-buffer buf
-            (if (zerop (buffer-size))
-                (error "kubectl %s failed: %s" args
-                       (s-trim (with-temp-buffer
-                                 (insert-file-contents errfile)
-                                 (buffer-string))))
-              (goto-char (point-min))
-              (json-parse-buffer :null-object nil :false-object nil))))
-      (kill-buffer buf)
-      (delete-file errfile))))
+(defun knessy--linked-kubectl-json-aio (context args &optional tolerant?)
+  "Run `kubectl ARGS -o json' in CONTEXT asynchronously.
+Returns a promise of the parsed output. If there's no output at all, awaiting it
+signals an error with what kubectl said, or yields nil if TOLERANT?. Partial
+output is accepted, because kubectl exits non-zero if it can't list just one of
+many types.
+
+CONTEXT is passed explicitly: buffer-local variables can't be relied on in
+asynchronous code, as the user may switch buffers any time."
+  (let* ((promise (aio-promise))
+         (buf (generate-new-buffer " *knessy-linked*" t))
+         (buferr (generate-new-buffer " *knessy-linked-stderr*" t))
+         (cmd (s-concat knessy-kubectl " --context " context " " args " -o json")))
+    (knessy--log 3 cmd)
+    (with-environment-variables (("KUBECONFIG" knessy-kubeconfig))
+      (make-process
+       :name "knessy-linked"
+       :command (list "/bin/bash" "-c" cmd)
+       :buffer buf
+       :stderr buferr
+       :noquery t
+       :sentinel (lambda (proc _event)
+                   (unless (process-live-p proc)
+                     (let (value failure)
+                       (condition-case err
+                           (with-current-buffer buf
+                             (cond ((> (buffer-size) 0)
+                                    (goto-char (point-min))
+                                    (setq value (json-parse-buffer :null-object nil :false-object nil)))
+                                   (tolerant? nil)
+                                   (t (error "kubectl %s failed: %s" args
+                                             (s-trim (with-current-buffer buferr (buffer-string)))))))
+                         (error (setq failure err)))
+                       (kill-buffer buf)
+                       (kill-buffer buferr)
+                       (aio-resolve promise
+                                    (lambda ()
+                                      (if failure
+                                          (signal (car failure) (cdr failure))
+                                        value))))))))
+    promise))
 
 (defun knessy--linked-api-resources ()
   "API resources of the current context, guaranteed to have :kind and :group.
@@ -392,88 +428,146 @@ Caches populated by older versions of Knessy don't have them."
                   `((:name . ,(downcase kind))))
               :name)))
 
-(defun knessy--linked-fetch-namespace (ns resources)
-  "All objects of all the listable types in namespace NS."
+(defun knessy--linked-fetch-namespace-aio (context ns resources)
+  "Promise of the list of all objects of all the listable types in namespace NS."
   (let* ((types (->> resources
                      (-filter (lambda (r) (and (asoc-get r :namespaced)
                                                (member "list" (asoc-get r :verbs))
                                                (not (member (asoc-get r :name)
                                                             knessy-linked-ignored-resource-types)))))
                      (mapcar (lambda (r) (asoc-get r :name)))))
-         (list (knessy--linked-kubectl-json
-                (format "-n %s get %s" (shell-quote-argument ns) (s-join "," types)))))
-    (append (knessy--linked-get list "items") nil)))
+         (promise (aio-promise))
+         (list-promise (knessy--linked-kubectl-json-aio
+                        context
+                        (format "-n %s get %s" (shell-quote-argument ns) (s-join "," types)))))
+    ;; a promise can only be awaited from an aio function; hence this indirection
+    (aio-listen list-promise
+                (lambda (value-fn)
+                  (aio-resolve promise
+                               (lambda ()
+                                 (append (knessy--linked-get (funcall value-fn) "items") nil)))))
+    promise))
 
-(defun knessy--linked-make-resolver (idx resources dumped-ns)
-  "A resolver for IDX that fetches objects missing from it on demand.
-Only cluster-scoped objects and objects of namespaces other than DUMPED-NS
-are fetched: anything else that's not in IDX doesn't exist (e.g. an optional
-configmap)."
-  (let ((tried (ht)))
-    (lambda (kind ns name)
-      (when (and kind name
-                 (or (null ns) (not (equal ns dumped-ns)))
-                 (not (ht-contains? tried (list kind ns name))))
-        (ht-set tried (list kind ns name) t)
-        (when-let* ((resource (knessy--linked-find-resource resources kind))
-                    (obj (ignore-errors
-                           (knessy--linked-kubectl-json
-                            (format "%s get %s/%s"
-                                    (if ns (format "-n %s" (shell-quote-argument ns)) "")
-                                    (asoc-get resource :name)
-                                    (shell-quote-argument name))))))
-          (knessy--ci-add idx obj))))))
+(defun knessy--linked-fetch-object-aio (context resources kind ns name)
+  "Promise of the object (KIND NS NAME), or of nil if it can't be fetched."
+  (if-let* ((resource (knessy--linked-find-resource resources kind)))
+      (knessy--linked-kubectl-json-aio
+       context
+       (format "%s get %s/%s"
+               (if ns (format "-n %s" (shell-quote-argument ns)) "")
+               (asoc-get resource :name)
+               (shell-quote-argument name))
+       t)
+    (let ((promise (aio-promise)))
+      (aio-resolve promise (lambda () nil))
+      promise)))
 
-(defun knessy--linked-ids (ns rt name)
+(aio-defun knessy--linked-ids-aio (context resources ns rt name)
   "IDs of all the resources linked to resource NAME of type RT in namespace NS.
 NS is nil for cluster-scoped resources. The IDs are as in the other Knessy views,
-i.e. (NS . (RT . NAME))."
-  (let* ((resources (knessy--linked-api-resources))
-         (root-resource (or (knessy--linked-find-resource resources rt)
+i.e. (NS . (RT . NAME)). RESOURCES are the API resources of CONTEXT.
+
+All the kubectl calls are asynchronous. The graph walk itself is not, so it
+can't fetch objects it misses (cluster-scoped ones, gateways of other
+namespaces...) by itself. Instead it notes them (see `knessy--ci-request'),
+and when it's done they're all fetched in parallel, and the walk is repeated.
+It takes as many rounds as the longest chain of such references."
+  (let* ((root-resource (or (knessy--linked-find-resource resources rt)
                             (user-error "Unknown resource type %s" rt)))
-         (idx (knessy--ci-make)))
-    (setf (knessy--ci-resolver idx) (knessy--linked-make-resolver idx resources ns))
+         (idx (knessy--ci-make :dumped-ns ns)))
     (when ns
-      (dolist (obj (knessy--linked-fetch-namespace ns resources))
+      (dolist (obj (aio-await (knessy--linked-fetch-namespace-aio context ns resources)))
         (knessy--ci-add idx obj))
       (knessy--linked-index-referrers idx))
-    (let ((root (or (ht-get (knessy--ci-by-key idx)
-                            (list (asoc-get root-resource :kind) ns name))
-                    (knessy--ci-add
-                     idx
-                     (knessy--linked-kubectl-json
-                      (format "%s get %s/%s"
-                              (if ns (format "-n %s" (shell-quote-argument ns)) "")
-                              (asoc-get root-resource :name)
-                              (shell-quote-argument name)))))))
+    (unless (ht-get (knessy--ci-by-key idx) (list (asoc-get root-resource :kind) ns name))
+      (let ((root-obj (aio-await
+                       (knessy--linked-fetch-object-aio
+                        context resources (asoc-get root-resource :kind) ns name))))
+        (unless root-obj
+          (error "Could not fetch %s/%s" rt name))
+        (knessy--ci-add idx root-obj)))
+    (let* ((root (ht-get (knessy--ci-by-key idx) (list (asoc-get root-resource :kind) ns name)))
+           (graph (knessy--linked-graph idx root)))
+      (while (knessy--ci-pending idx)
+        (let ((promises (mapcar (lambda (key)
+                                  (apply #'knessy--linked-fetch-object-aio context resources key))
+                                (knessy--ci-pending idx))))
+          (setf (knessy--ci-pending idx) nil)
+          (dolist (promise promises)
+            (let ((obj (aio-await promise)))
+              (when obj
+                (knessy--ci-add idx obj)))))
+        (setq graph (knessy--linked-graph idx root)))
       (mapcar (lambda (obj)
                 (cons (knessy--linked-ns obj)
                       (cons (knessy--linked-resource-type-of resources obj)
                             (knessy--linked-name obj))))
-              (knessy--linked-graph idx root)))))
+              graph))))
 
 ;; ---------------------------------------------------------------------------
 ;; Display
 ;; ---------------------------------------------------------------------------
 
-(defun knessy--display-linked ()
+(defun knessy--linked-show (display-buf ids)
+  "Display the resources with IDS in DISPLAY-BUF."
+  (with-current-buffer display-buf
+    (let ((items (ht))
+          (view (ht-get knessy-views (cons knessy--resource-type knessy--view))))
+      ;; `ht-items' hands the items back in reverse order of insertion
+      (dolist (id (reverse ids))
+        (ht-set items id (ht ("RESOURCE-TYPE" (knessy--id-rt id))
+                             ("NAMESPACE" (or (knessy--id-ns id) ""))
+                             ("NAME" (knessy--id-name id)))))
+      (knessy--display2-common-part
+       display-buf
+       view
+       `(((:items . ,items)
+          (:headers . ((:static . ("RESOURCE-TYPE" "NAMESPACE" "NAME"))))))
+       nil))))
+
+(defun knessy--linked-still-current? (display-buf env)
+  "Non-nil if DISPLAY-BUF is alive and still has the env ENV that was current
+when the linked resources were requested."
+  (and (buffer-live-p display-buf)
+       (with-current-buffer display-buf
+         (equal (knessy--env) env))))
+
+(aio-defun knessy--display-linked-aio ()
+  (unless knessy--refresh-in-progress
+    (if knessy--debug
+        (setq knessy--refresh-in-progress nil)
+      (setq knessy--refresh-in-progress t))
+    ;; everything the code below needs from the buffer-local state is grabbed
+    ;; here, before the first await
+    (let ((display-buf (current-buffer))
+          (env (knessy--env))
+          (context knessy--context)
+          (root knessy--linked-root)
+          (resources (knessy--linked-api-resources)))
+      (condition-case err
+          (let ((ids (aio-await (apply #'knessy--linked-ids-aio context resources root))))
+            ;; this can take long (tens of seconds in big namespaces), and the
+            ;; user may have gone elsewhere meanwhile: don't paint over that
+            (if (knessy--linked-still-current? display-buf env)
+                (knessy--linked-show display-buf ids)
+              (knessy--log 3 "Linked resources arrived after the view changed, dropping them")
+              (when (buffer-live-p display-buf)
+                (with-current-buffer display-buf
+                  (setq knessy--refresh-in-progress nil)))))
+        (error
+         (when (buffer-live-p display-buf)
+           (with-current-buffer display-buf
+             (setq knessy--refresh-in-progress nil)))
+         (when (knessy--linked-still-current? display-buf env)
+           (message "Could not get the linked resources: %s" (error-message-string err))))))))
+
+(defun knessy--display-linked (&optional sync)
   "Display the resources linked to `knessy--linked-root' in the current buffer.
-This is synchronous: the graph is built from a handful of kubectl calls."
+Asynchronously, unless SYNC."
   (unless knessy--linked-root
     (user-error "No resource to show the linked resources of; use the jump command on a resource"))
-  (let* ((ids (apply #'knessy--linked-ids knessy--linked-root))
-         (items (ht))
-         (view (ht-get knessy-views (cons knessy--resource-type knessy--view))))
-    ;; `ht-items' hands the items back in reverse order of insertion
-    (dolist (id (reverse ids))
-      (ht-set items id (ht ("RESOURCE-TYPE" (knessy--id-rt id))
-                           ("NAMESPACE" (or (knessy--id-ns id) ""))
-                           ("NAME" (knessy--id-name id)))))
-    (knessy--display2-common-part
-     (current-buffer)
-     view
-     `(((:items . ,items)
-        (:headers . ((:static . ("RESOURCE-TYPE" "NAMESPACE" "NAME"))))))
-     nil)))
+  (if sync
+      (aio-wait-for (knessy--display-linked-aio))
+    (knessy--display-linked-aio)))
 
 (provide 'knessy-linked)

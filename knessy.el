@@ -1307,7 +1307,7 @@ Made so spamming refreshes doesn't result in 100 of kubectl calls.")
   (message (knessy--random-choice knessy-display-start-messages))
   (knessy--env-ring-push (knessy--env))
   (cond ((knessy--resource-type-linked? knessy--resource-type)
-         (knessy--display-linked))
+         (knessy--display-linked sync))
         (sync
          (knessy--display2-sync))
         (t
