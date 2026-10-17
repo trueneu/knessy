@@ -333,6 +333,15 @@ Takes precedence over the short names `kubectl api-resources' reports, e.g.
   :type '(alist :key-type string :value-type string)
   :group 'knessy)
 
+(defun knessy--api-resource (resource-type &optional context)
+  "Return the api-resources entry for RESOURCE-TYPE in CONTEXT, or nil.
+Looks only at the cache for CONTEXT (default: the current one) and never runs
+kubectl: if it's not cached, returns nil."
+  (let ((keys (list :api-resources (or context knessy--context))))
+    (and (knessy--cache-fresh-p knessy--cache keys)
+         (-find (lambda (r) (equal (asoc-get r :name) resource-type))
+                (knessy--cache-get knessy--cache keys #'ignore)))))
+
 (defun knessy--resource-type-short (resource-type &optional context)
   "Return a short display name for RESOURCE-TYPE, for display only.
 Looks, in order, at `knessy-resource-type-short-names', the first short name
@@ -341,21 +350,17 @@ Uses the api-resources cached for CONTEXT (default: the current one) and never
 runs kubectl: if they're not cached, or the type is unknown, returns
 RESOURCE-TYPE unchanged. Always returns RESOURCE-TYPE unchanged if
 `knessy-use-short-resource-type-names' is nil."
-  (let* ((context (or context knessy--context))
-         (keys (list :api-resources context))
-         (resource (and knessy-use-short-resource-type-names
-                        (knessy--cache-fresh-p knessy--cache keys)
-                        (-find (lambda (r) (equal (asoc-get r :name) resource-type))
-                               (knessy--cache-get knessy--cache keys #'ignore)))))
-    (or (and knessy-use-short-resource-type-names
-             (asoc-get knessy-resource-type-short-names resource-type))
-        (and resource
-             (or (car (asoc-get resource :short-names))
-                 (let ((group (asoc-get resource :group)))
-                   (if (s-blank? group)
-                       resource-type
-                     (s-chop-suffix (s-concat "." group) resource-type)))))
-        resource-type)))
+  (if (not knessy-use-short-resource-type-names)
+      resource-type
+    (let ((resource (knessy--api-resource resource-type context)))
+      (or (asoc-get knessy-resource-type-short-names resource-type)
+          (and resource
+               (or (car (asoc-get resource :short-names))
+                   (let ((group (asoc-get resource :group)))
+                     (if (s-blank? group)
+                         resource-type
+                       (s-chop-suffix (s-concat "." group) resource-type)))))
+          resource-type))))
 
 (defun knessy--resource-types ()
   (cons knessy-all-namespaced-resource-types-string

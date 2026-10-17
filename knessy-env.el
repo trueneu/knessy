@@ -224,7 +224,7 @@ originating knessy buffer, updates the ring's read position, and redisplays."
                               (or (nth 0 entry) "")
                               (or (nth 1 entry) "")
                               (or (nth 2 entry) "")
-                              (or (nth 3 entry) "")
+                              (knessy--resource-type-short (or (nth 3 entry) "") (nth 1 entry))
                               (knessy--utils-alist->str-= (nth 4 entry))
                               (knessy--utils-alist->str-= (nth 5 entry))
                               (or (nth 6 entry) "")

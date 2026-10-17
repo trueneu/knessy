@@ -612,11 +612,54 @@ left by a previous action), whose buffer-local context is not the one chosen.")
 ;; TODO: *all*!
 ;; TODO: reset labels and fields on resource type, ns, ctx change? make it configurable?
 ;; TODO: maybe also reset the regex filter
+(defvar knessy--resource-type-annotation-context nil
+  "Context whose api-resources `knessy--resource-type-annotation' looks at.
+Bound while selecting a resource type, as the minibuffer's own buffer-local
+`knessy--context' is not the one the user is working with.")
+
+(defun knessy--resource-type-annotation-fields (resource-type)
+  "Return (SHORT KIND SCOPE) strings describing RESOURCE-TYPE, or nil.
+SHORT is empty if there's no short name worth showing or
+`knessy-use-short-resource-type-names' is nil."
+  (when-let* ((resource (knessy--api-resource resource-type
+                                              knessy--resource-type-annotation-context)))
+    (let ((short (knessy--resource-type-short resource-type
+                                              knessy--resource-type-annotation-context)))
+      (list (if (equal short resource-type) "" short)
+            (or (asoc-get resource :kind) "")
+            (if (asoc-get resource :namespaced) "namespaced" "cluster")))))
+
+(defun knessy--resource-type-completion-table (resource-types)
+  "Completion table for RESOURCE-TYPES with category `knessy-resource-type'."
+  (lambda (string pred action)
+    (if (eq action 'metadata)
+        '(metadata (category . knessy-resource-type)
+                   (annotation-function
+                    . (lambda (cand)
+                        (when-let* ((fields (knessy--resource-type-annotation-fields cand)))
+                          (concat "  " (propertize (s-join "  " (-remove #'s-blank? fields))
+                                                   'face 'completions-annotations))))))
+      (complete-with-action action resource-types string pred))))
+
+(with-eval-after-load 'marginalia
+  (defun knessy--marginalia-resource-type (cand)
+    "Marginalia annotator for `knessy-resource-type' candidates.
+Fields have fixed widths so they line up between candidates."
+    (when-let* ((fields (knessy--resource-type-annotation-fields cand)))
+      (marginalia--fields
+       ((nth 0 fields) :width 8 :face 'marginalia-key)
+       ((nth 1 fields) :width 26 :truncate 26 :face 'marginalia-documentation)
+       ((nth 2 fields) :width 10 :face 'marginalia-type))))
+  (add-to-list 'marginalia-annotators
+               '(knessy-resource-type knessy--marginalia-resource-type builtin none)))
+
 (defun knessy--select-resource-type ()
   (interactive)
-  (when-let* ((new-rt (completing-read "Kind: "
-                                       (knessy--resource-types))))
-    (knessy--set-resource-type new-rt)))
+  (let ((knessy--resource-type-annotation-context knessy--context))
+    (when-let* ((new-rt (completing-read "Kind: "
+                                         (knessy--resource-type-completion-table
+                                          (knessy--resource-types)))))
+      (knessy--set-resource-type new-rt))))
 
 (defvar knessy--resource-type-children
   (ht ('deployment 'rs)
@@ -1423,7 +1466,7 @@ Made so spamming refreshes doesn't result in 100 of kubectl calls.")
                     (format "%s/%s/%s"
                             knessy--context
                             knessy--namespace
-                            knessy--resource-type)
+                            (knessy--resource-type-short knessy--resource-type knessy--context))
                     (if (s-equals? knessy-default-view-string knessy--view)
                         ""
                       (s-concat " (" knessy--view ")"))
