@@ -3,6 +3,10 @@
 (defun knessy--env ()
   (list knessy-kubeconfig knessy--context knessy--namespace knessy--resource-type knessy--label-selectors knessy--field-selectors knessy--view knessy--linked-root))
 
+(defun knessy--linked-root->str (root)
+  "Format linked ROOT, a (namespace resource-type name) list, as ns/type/name."
+  (s-join "/" (delq nil root)))
+
 (defun knessy--env-entry->str (env)
   (let* ((config (nth 0 env))
          (ctx (nth 1 env))
@@ -16,7 +20,7 @@
                       (knessy--utils-alist->str-= labels)
                       (knessy--utils-alist->str-= fields)
                       view
-                      (s-join "/" (delq nil linked-root))))))
+                      (knessy--linked-root->str linked-root)))))
 
 
 (defun knessy--set-env (env)
@@ -190,7 +194,8 @@ Walks from `knessy--env-ring-begin' up to but not including
                                ("RES-TYPE" 20 nil)
                                ("LABELS" 30 nil)
                                ("FIELDS" 30 nil)
-                               ("VIEW" 30 nil)])
+                               ("VIEW" 30 nil)
+                               ("LINKED" 40 nil)])
   (tabulated-list-init-header))
 
 (defun knessy-env-history ()
@@ -215,7 +220,11 @@ originating knessy buffer, updates the ring's read position, and redisplays."
                               (or (nth 3 entry) "")
                               (knessy--utils-alist->str-= (nth 4 entry))
                               (knessy--utils-alist->str-= (nth 5 entry))
-                              (or (nth 6 entry) "")))))
+                              (or (nth 6 entry) "")
+                              ;; the root is only meaningful for the linked view
+                              (if (equal (nth 3 entry) knessy-linked-resource-type-string)
+                                  (knessy--linked-root->str (nth 7 entry))
+                                "")))))
                    indices))
          (buf (get-buffer-create "*knessy-env-history*")))
     (with-current-buffer buf

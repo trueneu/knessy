@@ -1424,6 +1424,10 @@ Made so spamming refreshes doesn't result in 100 of kubectl calls.")
                     (if (s-equals? knessy-default-view-string knessy--view)
                         ""
                       (s-concat " (" knessy--view ")"))
+                    (if (and knessy--linked-root
+                             (equal knessy--resource-type knessy-linked-resource-type-string))
+                        (s-concat " <- " (knessy--linked-root->str knessy--linked-root))
+                      "")
                     (if knessy--label-selectors
                         (s-concat " " (knessy--utils-alist->str-= knessy--label-selectors))
                       "")
