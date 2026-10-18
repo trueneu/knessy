@@ -587,13 +587,28 @@ RESOURCE-TYPE unchanged. Always returns RESOURCE-TYPE unchanged if
    buf
    t))
 
+(defun knessy--labels-cache-key (ctx ns resource-type)
+  "Key of the labels of RESOURCE-TYPE in NS of CTX in `knessy--cache'.
+All the arguments are explicit, as this is used where the buffer-local
+variables are not those of the view that asked for the labels."
+  (if (or (knessy--namespace-all? ns)
+          (knessy--resource-type-global? resource-type))
+      (list :labels ctx resource-type)
+    (list :labels ctx ns resource-type)))
+
 (defun knessy--cache-labels-populate-async (ctx ns resource-type)
   (knessy--log 3 "In knessy--cache-labels-populate-async")
   ;; labels are per-resource-type; there's no single "get labels" call that
   ;; makes sense across every kind at once, and label filtering is refused
   ;; for the *ALL-...* pseudo-types anyway, so skip warming the cache
-  (unless (knessy--resource-type-all-synthetic? resource-type)
-    (let ((buf (knessy--utils-make-buffer
+  (unless (or (knessy--resource-type-all-synthetic? resource-type)
+              ;; fetching the labels means downloading every object of the type,
+              ;; which is slow in big namespaces: don't repeat it on every refresh
+              (knessy--cache-fresh-p knessy--cache (knessy--labels-cache-key ctx ns resource-type)))
+    ;; the key is worked out here, where the buffer-local variables are those
+    ;; of the view; the callback below runs in whichever buffer is current
+    (let ((key (knessy--labels-cache-key ctx ns resource-type))
+          (buf (knessy--utils-make-buffer
                 (generate-new-buffer-name
                  (knessy--utils-kubectl-buffer-name "labels-cache"))))
           (buferr (knessy--utils-make-buffer
@@ -609,11 +624,7 @@ RESOURCE-TYPE unchanged. Always returns RESOURCE-TYPE unchanged if
          (knessy--log 4 (format "knessy--cache-labels-populate-async: ctx: %s ns: %s resource-type: %s" ctx ns resource-type))
          (knessy--cache-set
           knessy--cache
-          ;; TODO: maybe (knessy--namespace-all?) should take no arguments
-          (if (or (knessy--namespace-all? ns)  ;; FIXME: knessy--namespace is "default" here? because buffer-local?
-                  (knessy--resource-type-global? resource-type))
-              (list :labels knessy--context knessy--resource-type)
-            (list :labels knessy--context knessy--namespace knessy--resource-type))
+          key
           (apply
            #'knessy--utils-ht-merge-duplicates-to-sets
            (mapcar

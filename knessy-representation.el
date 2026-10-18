@@ -90,9 +90,11 @@ Specify empty hashtable if no post-processing is desired.
           (setq header-repeated (asoc-get headers :repeated)))
 
         (while (not (eobp))
-          (knessy--log 5 (format "Working on line: %s" (thing-at-point 'line t)))
-          (let* ((values (s-split (rx (or (>= 2 whitespace) "|"))
-                                  (s-trim (thing-at-point 'line t))))
+          (let* ((line (thing-at-point 'line t))
+                 (_ (when (>= knessy--log-level 5)
+                      (knessy--log 5 (format "Working on line: %s" line))))
+                 (values (s-split (rx (or (>= 2 whitespace) "|"))
+                                  (s-trim line)))
                  (item (ht))
                  (name)
                  ;; TODO: here should be the check if resource-type is namespaced or not
