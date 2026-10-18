@@ -366,13 +366,19 @@ asynchronous code, as the user may switch buffers any time."
   (let* ((promise (aio-promise))
          (buf (generate-new-buffer " *knessy-linked*" t))
          (buferr (generate-new-buffer " *knessy-linked-stderr*" t))
-         (cmd (s-concat knessy-kubectl " --context " context " " args " -o json")))
+         ;; kubectl writes to a file rather than to Emacs: it writes in small
+         ;; pieces, and Emacs wakes up for each of them, which makes receiving
+         ;; tens of MB (the pods of a big namespace) take about a minute in a
+         ;; busy Emacs session. Reading a finished file takes a fraction of a second.
+         (outfile (make-temp-file "knessy-linked-"))
+         (cmd (s-concat knessy-kubectl " --context " context " " args " -o json > "
+                        (shell-quote-argument outfile))))
     (knessy--log 3 cmd)
     (with-environment-variables (("KUBECONFIG" knessy-kubeconfig))
       (make-process
        :name "knessy-linked"
        :command (list "/bin/bash" "-c" cmd)
-       :buffer buf
+       :buffer nil
        :stderr buferr
        :noquery t
        :sentinel (lambda (proc _event)
@@ -380,6 +386,8 @@ asynchronous code, as the user may switch buffers any time."
                      (let (value failure)
                        (condition-case err
                            (with-current-buffer buf
+                             (let ((coding-system-for-read 'utf-8-unix))
+                               (insert-file-contents outfile))
                              (cond ((> (buffer-size) 0)
                                     (goto-char (point-min))
                                     (setq value (json-parse-buffer :null-object nil :false-object nil)))
@@ -387,6 +395,7 @@ asynchronous code, as the user may switch buffers any time."
                                    (t (error "kubectl %s failed: %s" args
                                              (s-trim (with-current-buffer buferr (buffer-string)))))))
                          (error (setq failure err)))
+                       (ignore-errors (delete-file outfile))
                        (kill-buffer buf)
                        (kill-buffer buferr)
                        (aio-resolve promise
@@ -428,25 +437,81 @@ Caches populated by older versions of Knessy don't have them."
                   `((:name . ,(downcase kind))))
               :name)))
 
-(defun knessy--linked-fetch-namespace-aio (context ns resources)
-  "Promise of the list of all objects of all the listable types in namespace NS."
+(defcustom knessy-linked-parallelism 8
+  "How many kubectl calls the *LINKED* view makes at the same time."
+  :type 'integer
+  :group 'knessy)
+
+(defcustom knessy-linked-types-per-call 10
+  "How many resource types the *LINKED* view lists in a single kubectl call.
+Every kubectl call has a fixed cost of about a second (startup, authentication,
+discovery), so listing the types one by one is slow, and listing all of them in
+one call is slow too, as kubectl does it sequentially."
+  :type 'integer
+  :group 'knessy)
+
+(defcustom knessy-linked-heavy-resource-types '("pods")
+  "Resource types that the *LINKED* view always lists in a call of their own.
+Their output is big, so they shouldn't hold up the types they'd be grouped with."
+  :type '(repeat string)
+  :group 'knessy)
+
+(defun knessy--linked-chunk-types (types)
+  "Split TYPES into groups of at most `knessy-linked-types-per-call' types.
+Types of `knessy-linked-heavy-resource-types' get a group of their own.
+The order of TYPES is kept. Each group is a comma-separated string, as
+`kubectl get' takes it."
+  (let ((chunks '()) (current '()))
+    (cl-flet ((flush () (when current
+                          (push (s-join "," (nreverse current)) chunks)
+                          (setq current '()))))
+      (dolist (type types)
+        (if (member type knessy-linked-heavy-resource-types)
+            (progn (flush) (push type chunks))
+          (push type current)
+          (when (>= (length current) knessy-linked-types-per-call)
+            (flush))))
+      (flush))
+    (nreverse chunks)))
+
+(aio-defun knessy--linked-fetch-types-worker (context ns queue results)
+  "Fetch the objects of the groups of types in QUEUE in namespace NS.
+QUEUE is a cons cell shared between the workers, holding a list of
+(INDEX . TYPES) in its car; a worker takes groups off it until there are none
+left. The objects of the group number INDEX are stored at that index of the
+vector RESULTS."
+  (let (item)
+    (while (setq item (pop (car queue)))
+      (let ((json (condition-case nil
+                      ;; tolerant: types that can't be listed (e.g. forbidden) are skipped
+                      (aio-await (knessy--linked-kubectl-json-aio
+                                  context
+                                  (format "-n %s get %s" (shell-quote-argument ns) (cdr item))
+                                  t))
+                    (error nil))))
+        (when json
+          (aset results (car item)
+                (append (knessy--linked-get json "items") nil)))))))
+
+(aio-defun knessy--linked-fetch-namespace-aio (context ns resources)
+  "List of all objects of all the listable types in namespace NS.
+The types are listed in groups (see `knessy--linked-chunk-types'),
+`knessy-linked-parallelism' kubectl calls at a time. The objects come back in
+the order of the types, whichever call finishes first."
   (let* ((types (->> resources
                      (-filter (lambda (r) (and (asoc-get r :namespaced)
                                                (member "list" (asoc-get r :verbs))
                                                (not (member (asoc-get r :name)
                                                             knessy-linked-ignored-resource-types)))))
                      (mapcar (lambda (r) (asoc-get r :name)))))
-         (promise (aio-promise))
-         (list-promise (knessy--linked-kubectl-json-aio
-                        context
-                        (format "-n %s get %s" (shell-quote-argument ns) (s-join "," types)))))
-    ;; a promise can only be awaited from an aio function; hence this indirection
-    (aio-listen list-promise
-                (lambda (value-fn)
-                  (aio-resolve promise
-                               (lambda ()
-                                 (append (knessy--linked-get (funcall value-fn) "items") nil)))))
-    promise))
+         (chunks (knessy--linked-chunk-types types))
+         (results (make-vector (length chunks) nil))
+         (queue (list (-map-indexed #'cons chunks)))
+         (workers (cl-loop repeat (max 1 (min knessy-linked-parallelism (length chunks)))
+                           collect (knessy--linked-fetch-types-worker context ns queue results))))
+    (dolist (worker workers)
+      (aio-await worker))
+    (apply #'append (append results nil))))
 
 (defun knessy--linked-fetch-object-aio (context resources kind ns name)
   "Promise of the object (KIND NS NAME), or of nil if it can't be fetched."
