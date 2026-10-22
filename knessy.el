@@ -79,6 +79,7 @@ of the resources of a single type."
 (require 'knessy-cache)
 (require 'knessy-linked)
 (require 'knessy-env)
+(require 'knessy-port-forward)
 
 (load "./knessy-tests.el")
 (require 'knessy-tests)
@@ -254,6 +255,7 @@ time of the last restart, or the amount of restarts."
     (define-key map (kbd "e") 'knessy-edit)
     (define-key map (kbd "j") 'knessy-jump)
     (define-key map (kbd "f") 'knessy-filter)
+    (define-key map (kbd "F") 'knessy-port-forward)
     (define-key map (kbd "[") 'knessy-env-go-back)
     (define-key map (kbd "]") 'knessy-env-go-forward)
     (define-key map (kbd "z") 'knessy-env-history)
@@ -299,15 +301,19 @@ in Knessy mode, else lists all existing buffers."
   (interactive "P")
   ;; TODO: can we integrate with persp-mode or perspective or projects here seamlessly?..
   (when (yes-or-no-p (s-concat "Really kill all " (if only-auxiliary "auxiliary " "") "Knessy buffers?"))
+    ;; the buffers of the running port-forwards are not cleaned up, as that would
+    ;; kill the forwards; they are stopped in the port forwarding prefix
     (if only-auxiliary
         (->> (buffer-list)
              (mapcar #'buffer-name)
              (-filter #'knessy--knessy-buffer?)
              (-remove #'knessy--knessy-main-buffer?)
+             (-remove #'knessy--port-forward-buffer-live?)
              (mapcar #'kill-buffer))
       (->> (buffer-list)
            (mapcar #'buffer-name)
            (-filter #'knessy--knessy-buffer?)
+           (-remove #'knessy--port-forward-buffer-live?)
            (mapcar #'kill-buffer)))))
 
 (defun knessy-rename (name)
