@@ -131,7 +131,7 @@ name of its buffer."
 
 (defun knessy--port-forward-start (ctx ns rt name ports)
   "Start `kubectl port-forward' to RT/NAME in the background.
-  The resource is in namespace NS of context CTX.
+The resource is in namespace NS of context CTX.
 CTX, NS, RT and NAME are strings: the kubectl context, the namespace, the
 resource type and the resource name.
 PORTS is a list of port specs, strings.
