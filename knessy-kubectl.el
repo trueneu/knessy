@@ -706,7 +706,6 @@ Return value is not meaningful."
         (buferr (knessy--utils-make-buffer (generate-new-buffer-name (knessy--utils-kubectl-buffer-name "context-cache" t t t t)))))
     ;; TODO: the actual command should not live here
     (knessy--shell-exec-async2
-     ;; TODO (pgu, 19.05.2026): hack to avoid Azure login galore
      (concat knessy-kubectl " config get-contexts --output name")
      buf
      buferr
@@ -935,34 +934,6 @@ says so."
 
 ;; FIXME: sync label cache renewal steals focus to the buffer with results, same as with main display functions.
 ;; TODO: cache doesn't work at all for labels?
-(comment
- (let ((knessy--context "vam-ttd-p-01")
-       (knessy--namespace "spark-dataproc-prod")
-       (knessy--resource-type "pods"))
-   (knessy--cache-labels-populate-async))
-
- (let ((knessy--context "vam-ttd-p-01")
-       (knessy--namespace "monitoring")
-       (knessy--resource-type "pods")
-       (buf (get-buffer "*knessy-vam-ttd-p-01-monitoring-pods-labels-cache*<40>")))
-   (lambda ()
-       (knessy--cache-set
-        knessy--cache
-        ;; TODO: maybe (knessy--namespace-all?) should take no arguments
-        (if (or (knessy--namespace-all? knessy--namespace)
-                (knessy--resource-type-global?))
-            (list :labels knessy--context knessy--resource-type)
-          (list :labels knessy--context knessy--namespace knessy--resource-type))
-        (apply
-         #'knessy--utils-ht-merge-duplicates-to-sets
-         (mapcar
-          (lambda (s) (json-parse-string s))
-          (knessy--utils-read-buffer buf t)))
-        knessy-label-cache-ttl)))
-
- (princ (ht-get (ht-get (ht-get knessy--cache :labels) "minikube") "pods"))
- (princ (ht-get (ht-get (ht-get (ht-get knessy--cache :labels) "vam-ttd-p-01") "monitoring") "pods")))
-
 
 ;; TODO: kubectl forming commands already becoming dirty, generalize
 ;; TODO: also, resolve the kubeconfig env problem
@@ -977,16 +948,5 @@ and api-resources in the background."
   (interactive)
   (knessy-cache-clear)
   (knessy--caches-populate-async))
-
-(comment
- knessy--cache
- (knessy--caches-populate-async)
- (setenv "KUBECONFIG" "/home/pgu/.kube/config:/home/pgu/.kube/k8s-local")
- (ht-get knessy--cache-namespaces "wa1-aks-p-01")
-
- (-> knessy--cache
-     (ht-get :resource-types-global)
-     (ht-keys)))
-
 
 (provide 'knessy-kubectl)

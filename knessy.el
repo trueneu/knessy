@@ -653,9 +653,6 @@ The order of the list is unspecified."
 (defvar knessy--last-selected-context nil)
 (defvar knessy--last-selected-resource-type nil)
 
-(comment
- (expand-file-name "~/.kube/ttd"))
-
 (defun knessy--select-config-file (filename)
   "Switch to the kubeconfig file FILENAME.
 FILENAME is read interactively, from `~/.kube' by default, and the
