@@ -2,6 +2,13 @@
 
 ;; TODO: test on a cluster with metrics plugin enabled (minikube?)
 (defun knessy--make-convert-and-add-reduce-fn (conversion-fn)
+  "Return a reducing function that converts values and adds them up.
+CONVERSION-FN is a function of one argument that converts a string
+value to a number, e.g. `knessy--convert-cpu-units-millis'.
+The returned function takes an accumulator ACC and a value VAL, and
+returns ACC plus the result of CONVERSION-FN on VAL.
+It is meant to be used as the :reduce-fn of a view's :pre-process
+entry, see `knessy--parse-table-kubectl-output'."
   (lambda (acc val)
     (let ((converted (funcall conversion-fn val)))
       (+ acc converted))))

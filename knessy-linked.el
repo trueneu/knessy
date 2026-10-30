@@ -54,29 +54,48 @@ event for nearly everything that happens to a resource."
 ;; ---------------------------------------------------------------------------
 
 (defun knessy--linked-get (obj &rest keys)
-  "Look KEYS up in the nested hash tables of OBJ; nil if any step is missing."
+  "Look KEYS up in the nested hash tables of OBJ.
+OBJ is a parsed JSON object (a hash table).
+KEYS are the successive keys to look up, one per nesting level.
+Return the value found, or nil if any step is missing or is not a hash table."
   (let ((current obj))
     (while (and keys current)
       (setq current (when (hash-table-p current)
                       (gethash (pop keys) current))))
     current))
 
-(defun knessy--linked-kind (obj) (knessy--linked-get obj "kind"))
-(defun knessy--linked-name (obj) (knessy--linked-get obj "metadata" "name"))
-(defun knessy--linked-ns (obj) (knessy--linked-get obj "metadata" "namespace"))
+(defun knessy--linked-kind (obj)
+  "Return the \"kind\" of the parsed Kubernetes object OBJ, or nil."
+  (knessy--linked-get obj "kind"))
+(defun knessy--linked-name (obj)
+  "Return the metadata name of the parsed Kubernetes object OBJ, or nil."
+  (knessy--linked-get obj "metadata" "name"))
+(defun knessy--linked-ns (obj)
+  "Return the metadata namespace of the parsed object OBJ.
+The result is nil for cluster-scoped objects."
+  (knessy--linked-get obj "metadata" "namespace"))
 
 (defun knessy--linked-key (obj)
-  "The (KIND NS NAME) triple that references from other objects use."
+  "Return the (KIND NS NAME) triple of the parsed object OBJ.
+This is the form in which references from other objects name it.
+NS is nil for cluster-scoped objects."
   (list (knessy--linked-kind obj)
         (knessy--linked-ns obj)
         (knessy--linked-name obj)))
 
 (defun knessy--linked-uid (obj)
+  "Return a unique identifier of the parsed object OBJ.
+This is its metadata uid, or, if it has none, the printed form of its
+\(KIND NS NAME) key as a string."
   (or (knessy--linked-get obj "metadata" "uid")
       (format "%S" (knessy--linked-key obj))))
 
 (defun knessy--linked-walk (node fn)
-  "Call FN with (KEY VALUE) for every pair of every hash table nested in NODE."
+  "Call FN with (KEY VALUE) for every pair of every hash table nested in NODE.
+NODE is a parsed JSON value: hash tables and vectors are descended into
+recursively, other values are ignored.
+FN is called for its side effects, and its return value is discarded.
+Return nil."
   (cond ((hash-table-p node)
          (maphash (lambda (k v)
                     (funcall fn k v)
@@ -103,7 +122,12 @@ event for nearly everything that happens to a resource."
   (pending nil))                        ; the ones of those that are worth fetching
 
 (defun knessy--ci-add (idx obj)
-  "Register OBJ in IDX. Returns the registered object (OBJ unless already known)."
+  "Register the parsed object OBJ in the index IDX.
+OBJ is looked up by its uid, and is added to the by-uid and by-key tables,
+to the pod list if it is a Pod, and to the owned-by table under each of its
+owner references.
+Return the registered object, which is the one already in IDX if OBJ was
+known by uid, and OBJ otherwise."
   (let ((uid (knessy--linked-uid obj)))
     (or (ht-get (knessy--ci-by-uid idx) uid)
         (progn
@@ -119,9 +143,15 @@ event for nearly everything that happens to a resource."
 
 (defun knessy--ci-request (idx kind ns name)
   "Note that the object (KIND NS NAME) is missing from IDX and should be fetched.
+IDX is the index.
+KIND and NS and NAME identify the object; NS is nil if it is cluster-scoped.
 Only cluster-scoped objects and objects of namespaces other than the dumped one
 are worth fetching: anything else that's not in IDX doesn't exist (e.g. an
-optional configmap)."
+optional configmap).
+Each object is requested at most once; requests are pushed onto the pending
+list of IDX.
+Do nothing if KIND or NAME is nil.
+Return value is not meaningful."
   (let ((key (list kind ns name)))
     (when (and kind name
                (or (null ns) (not (equal ns (knessy--ci-dumped-ns idx))))
@@ -130,8 +160,9 @@ optional configmap)."
       (push key (knessy--ci-pending idx)))))
 
 (defun knessy--ci-lookup (idx kind ns name)
-  "The object (KIND NS NAME) if IDX has it. If not, it's requested, so that it's
-there after the next round of fetching (see `knessy--linked-ids-aio')."
+  "Return the object (KIND NS NAME) if the index IDX has it.
+If not, return nil, and request the object (see `knessy--ci-request'), so that
+it's there after the next round of fetching (see `knessy--linked-ids-aio')."
   (or (ht-get (knessy--ci-by-key idx) (list kind ns name))
       (progn (knessy--ci-request idx kind ns name)
              nil)))
@@ -141,7 +172,10 @@ there after the next round of fetching (see `knessy--linked-ids-aio')."
 ;; ---------------------------------------------------------------------------
 
 (defun knessy--linked-selector (obj)
-  "The label selector of OBJ if it selects pods, else nil.
+  "Return the label selector of OBJ if it selects pods, else nil.
+OBJ is a parsed object.
+The selector is a parsed matchLabels/matchExpressions table.
+A Service gets one made of its spec selector, unless that is empty.
 Only the kinds for which pods aren't already reachable through ownership
 are considered, otherwise a pod would be linked to all its siblings."
   (pcase (knessy--linked-kind obj)
@@ -153,7 +187,11 @@ are considered, otherwise a pod would be linked to all its siblings."
     ("NetworkPolicy" (knessy--linked-get obj "spec" "podSelector"))))
 
 (defun knessy--linked-selector-matches? (selector labels)
-  "T if the label selector SELECTOR (matchLabels/matchExpressions) matches LABELS."
+  "Return non-nil if the label selector SELECTOR matches LABELS.
+SELECTOR is a parsed table with optional matchLabels and matchExpressions.
+The operators In, NotIn, Exists and DoesNotExist are supported; an
+expression with any other operator never matches.
+LABELS is a hash table of labels, or nil, which is the same as no labels."
   (let ((labels (or labels (ht)))
         (match-labels (knessy--linked-get selector "matchLabels"))
         (match-expressions (knessy--linked-get selector "matchExpressions")))
@@ -174,9 +212,15 @@ are considered, otherwise a pod would be linked to all its siblings."
           (append match-expressions nil)))))
 
 (defun knessy--linked-forward-targets (idx obj)
-  "The (KIND NS NAME) triples that OBJ refers to.
+  "Return the list of (KIND NS NAME) triples that OBJ refers to.
+IDX is the index; its pod list is used to resolve the pods that a selecting
+object (see `knessy--linked-selector') matches in the namespace of OBJ.
+OBJ is a parsed object.
 References are found structurally, wherever they appear in the object, so that
-pod templates of any workload kind (including CRDs) are covered."
+pod templates of any workload kind (including CRDs) are covered.
+Cluster-scoped kinds get a nil NS.
+The result has no duplicates.
+This does not fetch or request anything."
   (let* ((kind (knessy--linked-kind obj))
          (ns (knessy--linked-ns obj))
          (targets '()))
@@ -257,13 +301,22 @@ pod templates of any workload kind (including CRDs) are covered."
     (delete-dups targets)))
 
 (defun knessy--linked-index-referrers (idx)
-  "Fill the reverse references table of IDX from the objects registered so far."
+  "Fill the reverse references table of IDX from the objects registered so far.
+For each object, each of its forward targets (see
+`knessy--linked-forward-targets') gets the object added as a referrer.
+Return value is not meaningful."
   (let ((referrers (knessy--ci-referrers idx)))
     (dolist (obj (ht-values (knessy--ci-by-uid idx)))
       (dolist (target (knessy--linked-forward-targets idx obj))
         (ht-set referrers target (cons obj (ht-get referrers target)))))))
 
 (defun knessy--linked-owners (idx obj)
+  "Return the list of objects that own OBJ according to its ownerReferences.
+IDX is the index.
+Each owner is looked up by uid first, then by kind and the namespace of OBJ,
+then by kind as a cluster-scoped object.
+Owners that are not found are left out, and are requested for the next
+fetching round (see `knessy--ci-lookup')."
   (let ((ns (knessy--linked-ns obj)))
     (delq nil
           (mapcar (lambda (ref)
@@ -276,10 +329,14 @@ pod templates of any workload kind (including CRDs) are covered."
                   (append (knessy--linked-get obj "metadata" "ownerReferences") nil)))))
 
 (defun knessy--linked-owned (idx obj)
+  "Return the list of objects in IDX that are owned by OBJ, or nil."
   (ht-get (knessy--ci-owned-by idx) (knessy--linked-uid obj)))
 
 (defun knessy--linked-forward (idx obj)
-  "Objects that OBJ refers to, and, for secrets, their owners.
+  "Return the objects that OBJ refers to, and, for secrets, their owners.
+IDX is the index.
+Targets that are not in IDX are left out, and are requested for the next
+fetching round (see `knessy--ci-lookup').
 Secrets are often generated from something (an ExternalSecret, a
 cert-manager Certificate), which is worth showing. For other kinds the owners
 of referenced objects are left out: that'd drag in unrelated things, like the
@@ -292,10 +349,16 @@ StatefulSet that owns a PVC."
            (knessy--linked-owners idx obj)))))
 
 (defun knessy--linked-incoming (idx obj)
+  "Return the list of objects in IDX that refer to OBJ, or nil.
+The reverse references table must have been filled before, see
+`knessy--linked-index-referrers'."
   (ht-get (knessy--ci-referrers idx) (knessy--linked-key obj)))
 
 (defun knessy--linked-gateways (idx obj)
-  "The gateways that OBJ (a route) is attached to."
+  "Return the gateways that OBJ (a route) is attached to.
+IDX is the index.
+Gateways that are not in IDX are left out, and are requested for the next
+fetching round (see `knessy--ci-lookup')."
   (delq nil
         (mapcar (lambda (target) (apply #'knessy--ci-lookup idx target))
                 (-filter (lambda (target) (equal (car target) "Gateway"))
@@ -306,9 +369,12 @@ StatefulSet that owns a PVC."
 ;; ---------------------------------------------------------------------------
 
 (defun knessy--linked-closure (starts next &optional exclude)
-  "Objects reachable from STARTS by repeatedly applying NEXT, nearest first.
-NEXT takes an object and returns a list of objects. Neither STARTS nor
-EXCLUDE (both lists of objects) are part of the result."
+  "Return the objects reachable from STARTS by repeatedly applying NEXT.
+The search is breadth-first, so the result is ordered nearest first.
+NEXT is a function that takes an object and returns a list of objects.
+STARTS is a list of objects to start from.
+EXCLUDE is an optional list of objects that are not entered.
+Neither STARTS nor EXCLUDE are part of the result."
   (let ((seen (ht))
         (queue (copy-sequence starts))
         (found '()))
@@ -323,7 +389,10 @@ EXCLUDE (both lists of objects) are part of the result."
     (nreverse found)))
 
 (defun knessy--linked-graph (idx root)
-  "All objects linked to ROOT (see the commentary on top of the file).
+  "Return all objects linked to ROOT (see the commentary on top of the file).
+IDX is the index, and ROOT is the parsed object the walk starts at.
+Objects missing from IDX that the walk would need are requested, not fetched
+\(see `knessy--ci-request').
 The result is ordered: ancestors (top-most first), ROOT, descendants,
 forward references, incoming references, gateways of incoming routes,
 what those gateways refer to."
@@ -356,10 +425,15 @@ what those gateways refer to."
 
 (defun knessy--linked-kubectl-json-aio (context args &optional tolerant?)
   "Run `kubectl ARGS -o json' in CONTEXT asynchronously.
+CONTEXT is the kubectl context name.
+ARGS is a string of kubectl arguments, inserted into a shell command as is.
+TOLERANT? is optional; if non-nil, empty output yields nil instead of an error.
 Returns a promise of the parsed output. If there's no output at all, awaiting it
 signals an error with what kubectl said, or yields nil if TOLERANT?. Partial
 output is accepted, because kubectl exits non-zero if it can't list just one of
 many types.
+Side effects: starts a bash process that writes to a temporary file, which is
+deleted when the process ends; uses `knessy-kubectl' and `knessy-kubeconfig'.
 
 CONTEXT is passed explicitly: buffer-local variables can't be relied on in
 asynchronous code, as the user may switch buffers any time."
@@ -406,8 +480,11 @@ asynchronous code, as the user may switch buffers any time."
     promise))
 
 (defun knessy--linked-api-resources ()
-  "API resources of the current context, guaranteed to have :kind and :group.
-Caches populated by older versions of Knessy don't have them."
+  "Return the API resources of the current context, with :kind and :group.
+Caches populated by older versions of Knessy don't have them; if the cached
+list lacks :kind, it is replaced by a freshly fetched one (a kubectl call,
+and a write to `knessy--cache').
+The result is a list of alists, as returned by `knessy--api-resources'."
   (let ((resources (knessy--api-resources)))
     (if (and resources (not (asoc-get (car resources) :kind)))
         (knessy--cache-set knessy--cache
@@ -416,7 +493,11 @@ Caches populated by older versions of Knessy don't have them."
       resources)))
 
 (defun knessy--linked-find-resource (resources type)
-  "The API resource whose name or kind is TYPE (a resource type or a kind)."
+  "Return the API resource in RESOURCES whose name or kind is TYPE, or nil.
+RESOURCES is a list of API resource alists.
+TYPE is a resource type name or a kind; the name is matched first, then the
+kind, then the kind ignoring case.
+Types in `knessy-linked-ignored-resource-types' are never returned."
   (let ((candidates (-remove (lambda (r) (member (asoc-get r :name) knessy-linked-ignored-resource-types))
                              resources)))
     (or (-find (lambda (r) (equal (asoc-get r :name) type)) candidates)
@@ -424,7 +505,12 @@ Caches populated by older versions of Knessy don't have them."
         (-find (lambda (r) (s-equals? (downcase (asoc-get r :kind)) (downcase type))) candidates))))
 
 (defun knessy--linked-resource-type-of (resources obj)
-  "Fully-qualified resource type name (as in `kubectl api-resources') of OBJ."
+  "Return the fully-qualified resource type name (as in `kubectl api-resources').
+RESOURCES is a list of API resource alists.
+OBJ is a parsed object; its kind and the group of its apiVersion are used to
+pick the resource, falling back to the first resource of that kind, and then
+to the lowercased kind.
+Types in `knessy-linked-ignored-resource-types' are not considered."
   (let* ((kind (knessy--linked-kind obj))
          (api-version (or (knessy--linked-get obj "apiVersion") ""))
          (group (if (s-contains? "/" api-version) (car (s-split "/" api-version)) ""))
@@ -458,6 +544,8 @@ Their output is big, so they shouldn't hold up the types they'd be grouped with.
 
 (defun knessy--linked-chunk-types (types)
   "Split TYPES into groups of at most `knessy-linked-types-per-call' types.
+TYPES is a list of resource type names.
+Return a list of comma-separated strings.
 Types of `knessy-linked-heavy-resource-types' get a group of their own.
 The order of TYPES is kept. Each group is a comma-separated string, as
 `kubectl get' takes it."
@@ -476,6 +564,11 @@ The order of TYPES is kept. Each group is a comma-separated string, as
 
 (aio-defun knessy--linked-fetch-types-worker (context ns queue results)
   "Fetch the objects of the groups of types in QUEUE in namespace NS.
+CONTEXT is the kubectl context.
+RESULTS is the vector described below.
+This is an asynchronous function that returns a promise; its value is not
+meaningful.
+Groups that fail to be listed are skipped.
 QUEUE is a cons cell shared between the workers, holding a list of
 (INDEX . TYPES) in its car; a worker takes groups off it until there are none
 left. The objects of the group number INDEX are stored at that index of the
@@ -494,7 +587,11 @@ vector RESULTS."
                 (append (knessy--linked-get json "items") nil)))))))
 
 (aio-defun knessy--linked-fetch-namespace-aio (context ns resources)
-  "List of all objects of all the listable types in namespace NS.
+  "Return a promise of the list of all objects of all listable types in NS.
+CONTEXT is the kubectl context.
+NS is the namespace.
+RESOURCES are the API resources of CONTEXT; the namespaced ones that support
+the list verb, except `knessy-linked-ignored-resource-types', are listed.
 The types are listed in groups (see `knessy--linked-chunk-types'),
 `knessy-linked-parallelism' kubectl calls at a time. The objects come back in
 the order of the types, whichever call finishes first."
@@ -514,7 +611,13 @@ the order of the types, whichever call finishes first."
     (apply #'append (append results nil))))
 
 (defun knessy--linked-fetch-object-aio (context resources kind ns name)
-  "Promise of the object (KIND NS NAME), or of nil if it can't be fetched."
+  "Return a promise of the object (KIND NS NAME), or of nil if it can't be fetched.
+CONTEXT is the kubectl context.
+RESOURCES are the API resources of CONTEXT, used to find the resource type
+of KIND.
+NS is nil for cluster-scoped objects.
+Runs `kubectl get' asynchronously, unless KIND is unknown, in which case the
+promise is already resolved with nil."
   (if-let* ((resource (knessy--linked-find-resource resources kind)))
       (knessy--linked-kubectl-json-aio
        context
@@ -529,8 +632,12 @@ the order of the types, whichever call finishes first."
 
 (aio-defun knessy--linked-ids-aio (context resources ns rt name)
   "IDs of all the resources linked to resource NAME of type RT in namespace NS.
+CONTEXT is the kubectl context.
 NS is nil for cluster-scoped resources. The IDs are as in the other Knessy views,
 i.e. (NS . (RT . NAME)). RESOURCES are the API resources of CONTEXT.
+Return a promise of the list of IDs, ordered as in `knessy--linked-graph'.
+Signals a `user-error' if RT is unknown, and an error if the root resource
+can't be fetched.
 
 All the kubectl calls are asynchronous. The graph walk itself is not, so it
 can't fetch objects it misses (cluster-scoped ones, gateways of other
@@ -574,7 +681,11 @@ It takes as many rounds as the longest chain of such references."
 ;; ---------------------------------------------------------------------------
 
 (defun knessy--linked-show (display-buf ids)
-  "Display the resources with IDS in DISPLAY-BUF."
+  "Display the resources with IDS in DISPLAY-BUF.
+IDS is a list of IDs, (NS . (RT . NAME)), in display order.
+DISPLAY-BUF is the Knessy buffer, whose current view is used.
+Each resource is shown with RESOURCE-TYPE, NAMESPACE and NAME columns.
+Return value is not meaningful."
   (with-current-buffer display-buf
     (let ((items (ht))
           (view (ht-get knessy-views (cons knessy--resource-type knessy--view))))
@@ -591,13 +702,25 @@ It takes as many rounds as the longest chain of such references."
        nil))))
 
 (defun knessy--linked-still-current? (display-buf env)
-  "Non-nil if DISPLAY-BUF is alive and still has the env ENV that was current
-when the linked resources were requested."
+  "Return non-nil if DISPLAY-BUF is alive and still has the env ENV.
+ENV is the env (see `knessy--env') that was current when the linked
+resources were requested."
   (and (buffer-live-p display-buf)
        (with-current-buffer display-buf
          (equal (knessy--env) env))))
 
 (aio-defun knessy--display-linked-aio ()
+  "Fetch and display the resources linked to `knessy--linked-root'.
+Work on the current buffer, which must be a Knessy buffer.
+Do nothing if `knessy--refresh-in-progress' is set; otherwise set it, unless
+`knessy--debug' is non-nil.
+The buffer state is captured before the first await, and the result is
+dropped if the env of the buffer changed meanwhile.
+On success `knessy--linked-show' paints the buffer, and the flag is not reset
+by this function in that case.
+On failure or when the result is dropped, the flag is reset here, and on
+failure a message is shown if the buffer is still current.
+This is an asynchronous function that returns a promise."
   (unless knessy--refresh-in-progress
     (if knessy--debug
         (setq knessy--refresh-in-progress nil)
@@ -628,7 +751,8 @@ when the linked resources were requested."
 
 (defun knessy--display-linked (&optional sync)
   "Display the resources linked to `knessy--linked-root' in the current buffer.
-Asynchronously, unless SYNC."
+Asynchronously, unless SYNC is non-nil, in which case wait until done.
+Signals a `user-error' if `knessy--linked-root' is nil."
   (unless knessy--linked-root
     (user-error "No resource to show the linked resources of; use the jump command on a resource"))
   (if sync

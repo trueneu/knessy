@@ -7,8 +7,8 @@
 ; Retrieved 2026-03-23, License - CC BY-SA 4.0
 (defun knessy--utils-insert-into-list (list el n)
   "Insert into list LIST an element EL at index N.
-
 If N is 0, EL is inserted before the first element.
+N must not be greater than the length of LIST.
 
 The resulting list is returned.  As the list contents is mutated
 in-place, the old list reference does not remain valid."
@@ -18,26 +18,37 @@ in-place, the old list reference does not remain valid."
     (cdr padded-list)))
 
 (defun knessy--utils-make-buffer (buffer-name)
-  "Either kill an existing buffer with the name and create a new one, or just create it."
+  "Create and return a fresh buffer named BUFFER-NAME.
+If a buffer with that name already exists, kill it first.
+The new buffer is created with buffer hooks inhibited."
   (let ((buf (get-buffer buffer-name)))
     (when buf
       (kill-buffer buf))
     (get-buffer-create buffer-name t)))
 
 (defun knessy--utils-filename-expand-colons (s)
-  "Expands file name for multiple files divided by colons."
+  "Expand every file name in the colon-separated list S.
+S is a string like \"a/b:c/d\", for example a KUBECONFIG value.
+Each part is passed to `expand-file-name', relative to the current
+`default-directory'.
+Return the expanded names joined back with colons."
   (s-join ":"
     (let ((paths (s-split ":" s)))
       (mapcar #'expand-file-name paths))))
 
 (defun knessy--utils-set (l)
-  "Makes a hashset from the list L"
+  "Make a hash set from the list L.
+Return a new hash table, created with `ht', which has every element
+of L as a key and t as the value."
   (let ((res (ht)))
     (dolist (entry l res)
       (ht-set res entry t))))
 
 (defun knessy--utils-set-intersection (ht1 ht2)
-  "Compute sets intersection between ht1 and ht2"
+  "Compute the intersection of the hash sets HT1 and HT2.
+Both are hash tables used as sets, i.e. only their keys matter.
+Return a list \(not a hash table) of the keys present in both.
+The order of the list is unspecified."
   (interactive)
   (let* ((ht1-smaller? (< (ht-size ht1) (ht-size ht2)))
          (smaller-set (if ht1-smaller? ht1 ht2))
@@ -48,6 +59,10 @@ in-place, the old list reference does not remain valid."
         (push key intersection)))))
 
 (defun knessy--utils-ht-merge-duplicates-to-sets (&rest tables)
+  "Merge hash tables TABLES, collecting the values of equal keys into sets.
+Each of TABLES is a hash table.
+Return a new hash table which maps every key seen in any of TABLES to a
+hash set \(value -> t) of all the values the key had."
   (let ((res-table (ht)))
     (dolist (table tables res-table)
       (dolist (item (ht-items table))
@@ -58,7 +73,12 @@ in-place, the old list reference does not remain valid."
             (ht-set (ht-get res-table key) value t)))))))
 
 (defun knessy--utils-ht-init (table keys)
-  "Initializes hashtables all the way down if needed. Returns the last (leaf) hashtable."
+  "Make sure the nested hash tables addressed by KEYS exist in TABLE.
+TABLE is a hash table, KEYS is a list of keys to descend through.
+For every key, if there is no non-nil value in the current table, set
+it to a new empty hash table, then descend into it.
+TABLE is modified in place.
+Return the last \(leaf) hash table."
   (let ((current-table table))
     (dolist (key keys)
       (unless (ht-get current-table key)
@@ -68,7 +88,13 @@ in-place, the old list reference does not remain valid."
     current-table))
 
 (defun knessy--utils-ht-set* (table keys value)
-  "Sets an aribitrarily nested key to value, creating hashtables along the way if don't exist."
+  "Set an arbitrarily nested key in TABLE to VALUE.
+TABLE is a hash table.
+KEYS is a non-empty list of keys, the last one being set to VALUE in the
+table addressed by the previous ones.
+Missing hash tables along the way are created with
+`knessy--utils-ht-init'.
+Return VALUE."
   (let* ((last-key (car (last keys)))
          (butlast-keys (butlast keys))
          (current-table (knessy--utils-ht-init table butlast-keys)))
@@ -77,6 +103,11 @@ in-place, the old list reference does not remain valid."
 
 ;; TODO: can generalize this to readlines and save to a list
 (defun knessy--utils-read-buffer (buf &optional no-kill)
+  "Read the lines of buffer BUF into a list of trimmed strings.
+Every line of BUF, blank lines included, is trimmed with `s-trim'.
+Point in BUF is moved.
+Kill BUF afterwards, unless NO-KILL is non-nil.
+Return the list of lines in reverse order, last line first."
   (let (new-cache)
     (with-current-buffer buf
       (goto-char (point-min))
@@ -90,6 +121,15 @@ in-place, the old list reference does not remain valid."
     new-cache))
 
 (defun knessy--utils-kubectl-buffer-name (what &optional omit-context? omit-namespace? omit-resource-type? stderr?)
+  "Return a buffer name for a kubectl-related buffer, as a string.
+WHAT is a string describing the buffer's purpose.
+The name looks like \"*BASE-CONTEXT-NAMESPACE-RESOURCE-TYPE-WHAT*\",
+built from `knessy-base-buffer-name', `knessy--context',
+`knessy--namespace' and `knessy--resource-type'.
+If OMIT-CONTEXT?, OMIT-NAMESPACE? or OMIT-RESOURCE-TYPE? is non-nil,
+the corresponding part is left out.
+If STDERR? is non-nil, the name of the stderr buffer is returned,
+i.e. \"-stderr\" is appended after WHAT."
   (s-concat
    "*"
    knessy-base-buffer-name
@@ -112,19 +152,35 @@ in-place, the old list reference does not remain valid."
 ;; Resource IDs are dotted pairs of the form (NS . (RT . NAME)),
 ;; constructed in knessy-representation.el. NS is nil for cluster-scoped
 ;; resources. Always go through these accessors instead of car/cadr/cddr.
-(defun knessy--id-ns (id) (car id))
-(defun knessy--id-rt (id) (cadr id))
-(defun knessy--id-name (id) (cddr id))
+(defun knessy--id-ns (id)
+  "Return the namespace of the resource ID.
+ID is a dotted pair \(NS . \(RT . NAME)).
+NS is nil for cluster-scoped resources."
+  (car id))
+(defun knessy--id-rt (id)
+  "Return the resource type of the resource ID.
+ID is a dotted pair \(NS . \(RT . NAME))."
+  (cadr id))
+(defun knessy--id-name (id)
+  "Return the name of the resource ID.
+ID is a dotted pair \(NS . \(RT . NAME))."
+  (cddr id))
 
 (defun knessy--utils-fresh-kubectl-buffer (what &optional omit-context? omit-namespace? omit-resource-type? stderr?)
-  "Create a fresh kubectl buffer with a unique generated name.
-Arguments are forwarded to `knessy--utils-kubectl-buffer-name'."
+  "Create a fresh kubectl buffer with a unique generated name, and return it.
+WHAT, OMIT-CONTEXT?, OMIT-NAMESPACE?, OMIT-RESOURCE-TYPE? and STDERR?
+are forwarded to `knessy--utils-kubectl-buffer-name'.
+The name is made unique with `generate-new-buffer-name'."
   (knessy--utils-make-buffer
    (generate-new-buffer-name
     (knessy--utils-kubectl-buffer-name
      what omit-context? omit-namespace? omit-resource-type? stderr?))))
 
 (defun knessy--utils-alist->str-= (alist)
+  "Convert ALIST into a string of comma-separated KEY=VALUE pairs.
+ALIST is an association list, e.g. of Kubernetes labels.
+Keys and values are formatted with `%s'.
+Return the empty string if ALIST is nil."
   (s-join
    ","
    (asoc-map

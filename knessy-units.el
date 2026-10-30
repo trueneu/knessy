@@ -38,11 +38,16 @@
                                               ("d" . ,(* 60 60 24))))
 
 (defun knessy--appropriate-mult (bytes mults)
-  "A function returning an appropriate size multiplier cons cell for given
-amount of bytes.
-
-BYTES is the number of bytes
-MULTS is an alist of multipliers"
+  "Return the multiplier cons cell suitable for displaying BYTES.
+BYTES is a number of bytes.
+MULTS is an alist of \(NAME . MULTIPLIER) pairs, ordered from the
+largest multiplier to the smallest, e.g.
+`knessy--size-unit-pow2-multipliers-alist'.
+If BYTES is 0, return \(B . 1).
+Otherwise return the first pair in MULTS whose multiplier is strictly
+less than BYTES.
+MULTS should end with a small multiplier such as \(B . 1), since the
+list is walked recursively until a match is found."
 
   (if (= bytes 0) (cons 'B 1)
     (let* ((current (car mults))
@@ -54,9 +59,14 @@ MULTS is an alist of multipliers"
         (knessy--appropriate-mult bytes rest)))))
 
 (defun knessy--convert-size-units-bytes (s)
-  "Convert a string representing size to bytes integer.
-
-S is the string."
+  "Convert the size string S to a number of bytes.
+S looks like \"500M\", \"400Mi\" or \"12\", that is a number optionally
+followed by one of K, M, G, T, Ki, Mi, Gi, Ti.
+Decimal suffixes (K, M, G, T) are powers of 1000, binary suffixes
+\(Ki, Mi, Gi, Ti) are powers of 1024, and no suffix means bytes.
+If S is \"-\" or blank, return 0.
+If S does not look like a size, return nil.
+Use `knessy--size-units-alist' and `knessy--size-unit-multipliers-alist'."
   (if (or (s-equals? "-" s) (s-blank? s))
       0
     (when (string-match (rx bol (group (one-or-more (or digit ".")) (group (? (or "Ki" "Mi" "Gi" "Ti" "K" "M" "G" "T")) eol)))
@@ -71,7 +81,13 @@ S is the string."
  (knessy--convert-size-units-bytes "500M"))
 
 (defun knessy--convert-size-units-str (bytes)
-  "Convert bytes into a string with an appropriate multiplier."
+  "Convert BYTES into a string with an appropriate binary unit.
+BYTES is a number of bytes, or nil.
+If BYTES is nil, return the empty string.
+Otherwise pick a unit among Ti, Gi, Mi, Ki, B with
+`knessy--appropriate-mult' and return the scaled value with three
+decimals followed by the unit, e.g. \"1.500Mi\".
+The result has no text properties."
   (if (null bytes)
       ""
     (let* ((appropriate-name-mult (knessy--appropriate-mult bytes knessy--size-unit-pow2-multipliers-alist))
@@ -81,9 +97,11 @@ S is the string."
       (substring-no-properties (format "%.3f%s" scaled appropriate-name)))))
 
 (defun knessy--convert-cpu-units-millis (s)
-  "Convert a string representing CPU usage into millicores.
-
-S is the string."
+  "Convert the CPU usage string S into millicores.
+S is either a number of millicores with an \"m\" suffix, e.g. \"250m\",
+or a number of cores, e.g. \"0.5\" or \"2\".
+If S is \"-\" or blank, return 0.
+Return a number of millicores."
   (if (or (s-equals? "-" s) (s-blank? s))
       0
     (if (s-suffix? "m" s)
@@ -91,9 +109,12 @@ S is the string."
       (* 1000 (string-to-number s)))))
 
 (defun knessy--convert-cpu-units-str (millis)
-  "Convert millis into a CPU usage string.
-
-MILLIS is the amount of millicores."
+  "Convert MILLIS into a CPU usage string.
+MILLIS is an amount of millicores, or nil.
+If MILLIS is nil, return the empty string.
+If MILLIS is greater than 1000, return cores with three decimals and
+no suffix, e.g. \"1.500\".
+Otherwise return millicores with an \"m\" suffix, e.g. \"250m\"."
   (if (null millis)
       ""
     (if (> millis 1000)
@@ -101,17 +122,22 @@ MILLIS is the amount of millicores."
       (concat (number-to-string millis) "m"))))
 
 (defun knessy--ratio (x y)
-  "Calculate a usage ratio X/Y in percents, return as a string.
-
-If either is null, or y == 0, return \"N/A\""
+  "Return the usage ratio X/Y in percents, as a string such as \"42%\".
+X and Y are numbers.
+If X or Y is nil, or Y is zero, return \"?\".
+The result has no text properties."
   (if (or (null y) (zerop y) (null x))
       "?"
     (substring-no-properties (format "%.0f%%" (/ (float x) y 0.01)))))
 
 (defun knessy--convert-time-units-seconds (s)
-  "Convert a string representing time to seconds integer.
-
-S is the string."
+  "Convert the duration string S to a number of seconds.
+S is a sequence of components with d, h, m, s suffixes, e.g. \"3d4h\",
+\"5m10s\" or \"42s\".
+Every component found is multiplied by its unit and added up.
+If S is \"-\" or blank, return 0.
+If S contains no such component, return a large constant,
+3600 * 24 * 7 * 365 * 10 seconds."
   (if (or (s-equals? "-" s) (s-blank? s))
       0
     (if (string-match (rx
@@ -144,6 +170,11 @@ S is the string."
       (* 3600 24 7 365 10))))
 
 (defun knessy--extract-x-slash-y (s)
+  "Extract the X and Y parts of the first X/Y found in the string S.
+X and Y are runs of characters other than parentheses, and are not
+trimmed.
+Return a cons cell \(X . Y) of strings.
+If S has no such part, return \(\"0\" . \"0\")."
   (if (string-match (rx (group (one-or-more (not (any "()"))))
                         "/"
                         (group (one-or-more (not (any "()")))))
@@ -152,6 +183,9 @@ S is the string."
     (cons "0" "0")))
 
 (defun knessy--extract-percentage (s)
+  "Extract the first percentage from the string S.
+Return the digits before the first \"%\" as a string, without the sign.
+If S has no such part, return \"-1\"."
   (if (string-match (rx (group (one-or-more digit))
                         "%")
 
@@ -160,6 +194,11 @@ S is the string."
     "-1"))
 
 (defun knessy--extract-digits-before-paren (s)
+  "Extract the digits that precede an opening parenthesis in the string S.
+The digits must be followed by at least one blank and then \"(\",
+as in \"3 (2h ago)\".
+Return the digits as a string.
+If S has no such part, return \"0\"."
   (if (string-match (rx (group (one-or-more digit))
                         (one-or-more blank) "(")
 

@@ -3,24 +3,40 @@
 (require 'knessy-utils)
 
 (defun knessy--comparator-make-by (column-num extractor)
-  "Return a tabulated-list comparator over COLUMN-NUM.
-EXTRACTOR maps the column's string to a number; entries are compared with `<'."
+  "Return a tabulated-list comparator over the column COLUMN-NUM.
+COLUMN-NUM is the index of the column in the entry's vector.
+EXTRACTOR maps the column's string to a number; entries are compared with `<'.
+The returned function takes two tabulated-list entries X and Y, each of
+form \(ID VECTOR), and returns non-nil if X sorts before Y."
   (lambda (x y)
     (< (funcall extractor (aref (cadr x) column-num))
        (funcall extractor (aref (cadr y) column-num)))))
 
 (defun knessy--comparator-make-time (column-num)
-  "Comparator over a time column (e.g. age) at COLUMN-NUM."
+  "Return a comparator over a time column \(e.g. age) at COLUMN-NUM.
+Values are converted with `knessy--convert-time-units-seconds'.
+See `knessy--comparator-make-by' for the returned function."
   (knessy--comparator-make-by column-num #'knessy--convert-time-units-seconds))
 
 (defun knessy--comparator-make-restarts-count (column-num)
-  "Comparator over a restarts column formatted as NUMBER (TIME AGO) at COLUMN-NUM."
+  "Return a comparator over a restarts column at COLUMN-NUM.
+The column is formatted as NUMBER \(TIME AGO), and entries are compared
+by NUMBER, extracted with `knessy--extract-digits-before-paren'.
+See `knessy--comparator-make-by' for the returned function."
   (knessy--comparator-make-by
    column-num
    (lambda (s) (string-to-number (knessy--extract-digits-before-paren s)))))
 
 (defun knessy--comparator-make-ready (column-num)
-  "Takes column number containing ready containers column, formatted as READY/TOTAL. Returns a function taking two arguments, x and y, which are vectors with a tabulated-list-mode entry. The function returned is a comparator that extracts READY and TOTAL counts from vectors and compares them one to another. If both are fully ready (READY = TOTAL), then comparison is on TOTAL. If item X is not fully ready but Y is, X is less than Y, and vice versa. If both are not fully ready, comparison is on READY containers."
+  "Return a comparator over a ready column at COLUMN-NUM.
+The column holds ready containers formatted as READY/TOTAL.
+The returned function takes two arguments X and Y, which are
+tabulated-list entries \(ID VECTOR), and returns non-nil if X sorts
+before Y.
+READY and TOTAL are extracted with `knessy--extract-x-slash-y'.
+If both are fully ready \(READY = TOTAL), comparison is on TOTAL.
+If X is not fully ready but Y is, X is less than Y, and vice versa.
+If both are not fully ready, comparison is on READY."
   (lambda (x y)
     "Returns t if x<y"
     (let* ((x-ready (aref (cadr x) column-num))  ; extract the strings
@@ -46,31 +62,46 @@ EXTRACTOR maps the column's string to a number; entries are compared with `<'."
 
 
 (defun knessy--comparator-make-cpu-usage (column-num)
-  "Comparator over USAGE in a CPU column formatted as USAGE/TOTAL (RATIO)."
+  "Return a comparator over USAGE in a CPU column at COLUMN-NUM.
+The column is formatted as USAGE/TOTAL \(RATIO).
+USAGE is converted to millicores with `knessy--convert-cpu-units-millis'.
+See `knessy--comparator-make-by' for the returned function."
   (knessy--comparator-make-by
    column-num
    (lambda (s) (knessy--convert-cpu-units-millis (car (knessy--parse-x-slash-y s))))))
 
 (defun knessy--comparator-make-cpu-ceiling (column-num)
-  "Comparator over TOTAL in a CPU column formatted as USAGE/TOTAL (RATIO)."
+  "Return a comparator over TOTAL in a CPU column at COLUMN-NUM.
+The column is formatted as USAGE/TOTAL \(RATIO).
+TOTAL is converted to millicores with `knessy--convert-cpu-units-millis'.
+See `knessy--comparator-make-by' for the returned function."
   (knessy--comparator-make-by
    column-num
    (lambda (s) (knessy--convert-cpu-units-millis (cdr (knessy--parse-x-slash-y s))))))
 
 (defun knessy--comparator-make-mem-usage (column-num)
-  "Comparator over USAGE in a memory column formatted as USAGE/TOTAL (RATIO)."
+  "Return a comparator over USAGE in a memory column at COLUMN-NUM.
+The column is formatted as USAGE/TOTAL \(RATIO).
+USAGE is converted to bytes with `knessy--convert-size-units-bytes'.
+See `knessy--comparator-make-by' for the returned function."
   (knessy--comparator-make-by
    column-num
    (lambda (s) (knessy--convert-size-units-bytes (car (knessy--parse-x-slash-y s))))))
 
 (defun knessy--comparator-make-mem-ceiling (column-num)
-  "Comparator over TOTAL in a memory column formatted as USAGE/TOTAL (RATIO)."
+  "Return a comparator over TOTAL in a memory column at COLUMN-NUM.
+The column is formatted as USAGE/TOTAL \(RATIO).
+TOTAL is converted to bytes with `knessy--convert-size-units-bytes'.
+See `knessy--comparator-make-by' for the returned function."
   (knessy--comparator-make-by
    column-num
    (lambda (s) (knessy--convert-size-units-bytes (cdr (knessy--parse-x-slash-y s))))))
 
 (defun knessy--comparator-make-percentage (column-num)
-  "Comparator over RATIO in a column formatted as USAGE/TOTAL (RATIO)."
+  "Return a comparator over RATIO in a column at COLUMN-NUM.
+The column is formatted as USAGE/TOTAL \(RATIO), and RATIO is extracted
+with `knessy--extract-percentage'.
+See `knessy--comparator-make-by' for the returned function."
   (knessy--comparator-make-by
    column-num
    (lambda (s) (string-to-number (knessy--extract-percentage s)))))
