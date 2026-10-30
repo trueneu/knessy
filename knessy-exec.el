@@ -8,6 +8,16 @@
 (defvar knessy-kubectl)
 (defvar knessy-kubeconfig)
 
+;; The terminal packages are optional and loaded on demand.
+;; Declaring their variables special makes the `let' bindings below dynamic
+;; even when this file is byte-compiled without them being loaded.
+(defvar vterm-buffer-name)
+(defvar vterm-shell)
+(defvar ghostel-buffer-name)
+(defvar ghostel-shell)
+(declare-function vterm "vterm")
+(declare-function ghostel "ghostel")
+
 (defcustom knessy-shell-terminal 'vterm
   "Terminal package used to shell into pods.
 
@@ -19,16 +29,25 @@
 (defun knessy--tramp-method-name (ctx ns container)
   "Return a TRAMP method name unique to CTX, NS and CONTAINER.
 
+CTX and NS are strings with the kubectl context and namespace.
+CONTAINER is a container name string, or nil for the pod's default container.
+
 TRAMP caches connections by method and host.
-Method names may only be alphanumeric, hence no separator.
 The method bakes in context, namespace and container, so it has to differ
-whenever any of them does, or a second shell would reuse the first connection."
+whenever any of them does, or a second shell would reuse the first connection.
+Method names may only be alphanumeric, so the name is `kubectl' followed by
+a short hash of the three arguments."
   (format "kubectl%s"
           (substring (md5 (s-join "|" (list ctx ns (or container "")))) 0 8)))
 
 (defun knessy--setup-tramp (ctx ns &optional container)
-  "Setup a kubectl TRAMP method for CTX, NS and optionally CONTAINER.
-Returns the method name."
+  "Register a kubectl TRAMP method that execs into a pod, and return its name.
+
+CTX and NS are strings with the kubectl context and namespace.
+CONTAINER is a container name string, or nil for the pod's default container.
+The method runs `kubectl exec -it <pod> [-c CONTAINER] -- sh', where the pod
+is the host part of the TRAMP file name.
+The name is made by `knessy--tramp-method-name'."
   ;; TODO error message if resource is not pod
   (let ((method (knessy--tramp-method-name ctx ns container)))
     (setq tramp-methods (delete (assoc method tramp-methods) tramp-methods)) ;; cleanup previous tramp method
@@ -47,7 +66,11 @@ Returns the method name."
     method))
 
 (defun knessy--pod-containers (ctx ns pod-name)
-  "Return the list of container names of pod POD-NAME in NS of CTX."
+  "Return the list of container names of pod POD-NAME, as strings.
+
+CTX and NS are strings with the kubectl context and namespace of the pod.
+Only regular containers are listed, not init or ephemeral ones.
+Runs kubectl synchronously, with `knessy-kubeconfig' as KUBECONFIG."
   (with-environment-variables (("KUBECONFIG" knessy-kubeconfig))
     (split-string
      (string-join
@@ -59,14 +82,22 @@ Returns the method name."
      nil t)))
 
 (defun knessy--exec-buffer-name (terminal ctx ns pod-name container)
-  "Return a fresh buffer name for a TERMINAL shell into POD-NAME."
+  "Return an unused buffer name for a shell into a pod.
+
+TERMINAL is the terminal package symbol, `vterm' or `ghostel'.
+CTX and NS are the kubectl context and namespace, POD-NAME is the pod name.
+CONTAINER is a container name string, or nil when the default container is
+used; it is included in the name when set."
   (generate-new-buffer-name
    (s-join "_" (append (list (format "*%s" terminal) ctx ns pod-name)
                        (when container (list container))
                        (list "shell")))))
 
 (defun knessy--exec-vterm (dir buffer-name)
-  "Start vterm in DIR, in a buffer named BUFFER-NAME."
+  "Start a vterm running /bin/sh, and return its buffer.
+
+DIR is the directory to start in, here a TRAMP file name of the pod.
+BUFFER-NAME is the name of the new vterm buffer."
   (require 'vterm)
   (let ((default-directory dir)
         (vterm-buffer-name buffer-name)
@@ -74,7 +105,11 @@ Returns the method name."
     (vterm nil)))
 
 (defun knessy--exec-ghostel (dir buffer-name)
-  "Start ghostel in DIR, in a fresh buffer named BUFFER-NAME."
+  "Start a ghostel terminal running /bin/sh, and return its buffer.
+
+DIR is the directory to start in, here a TRAMP file name of the pod.
+BUFFER-NAME is the name of the new ghostel buffer.
+A new buffer is always created, an existing ghostel buffer is never reused."
   (require 'ghostel)
   (let ((default-directory dir)
         (ghostel-buffer-name buffer-name)
@@ -83,7 +118,12 @@ Returns the method name."
     (ghostel t)))
 
 (defun knessy-exec-pod (ctx ns pod-name &optional container)
-  "Exec into POD-NAME (optionally CONTAINER) using `knessy-shell-terminal'."
+  "Open a shell inside a pod, using the terminal in `knessy-shell-terminal'.
+
+CTX and NS are strings with the kubectl context and namespace.
+POD-NAME is the name of the pod.
+CONTAINER is a container name string, or nil for the pod's default container.
+Returns the terminal buffer."
   (let* ((method (knessy--setup-tramp ctx ns container))
          (dir-prefix (knessy--dir-prefix))
          (dir (format "/%s%s:%s:/" dir-prefix method pod-name))
@@ -94,7 +134,11 @@ Returns the method name."
       (other (user-error "Unsupported `knessy-shell-terminal': %s" other)))))
 
 (defun knessy--dir-prefix ()
-  "Return the current directory prefix for a TRAMP connection."
+  "Return the TRAMP hop prefix of `default-directory', or an empty string.
+
+When `default-directory' is already remote, the prefix lets the pod be
+reached through that connection, for example `ssh:host|'.
+It is empty for a local directory."
   (or
    (when (tramp-tramp-file-p default-directory)
      (with-parsed-tramp-file-name default-directory nil

@@ -222,8 +222,14 @@ time of the last restart, or the amount of restarts."
     (display-buffer log-buf)))
 
 (defun knessy--shell-read-container (prompt _initial-input _history)
-  "Read a container of the pod at point, with PROMPT.
-With a single container there is nothing to choose, so it is returned as is."
+  "Read a container name of the pod at point, and return it.
+
+This is the reader of the `--container=' option of `knessy-shell'.
+PROMPT is the minibuffer prompt supplied by transient.
+_INITIAL-INPUT and _HISTORY are supplied by transient and unused.
+With a single container there is nothing to choose, so it is returned
+without asking.
+Signals a `user-error' if the pod has no containers."
   (let* ((id (tabulated-list-get-id))
          (containers (knessy--pod-containers knessy--context
                                              (knessy--id-ns id)
@@ -233,14 +239,22 @@ With a single container there is nothing to choose, so it is returned as is."
       (completing-read prompt containers nil t))))
 
 (transient-define-prefix knessy-shell ()
-  "Shell into the pod at point."
+  "Transient menu to shell into the pod at point.
+
+The `-c' option chooses the container, and `s' opens the shell with
+`knessy-shell-into'."
   ["Options"
    ("-c" "Container" "--container=" :reader knessy--shell-read-container)]
   ["Actions"
    ("s" "Shell" knessy-shell-into)])
 
 (defun knessy-shell-into (&optional args)
-  "Shell into the pod at point, in the container chosen in `knessy-shell'."
+  "Shell into the pod at point, in the terminal set by `knessy-shell-terminal'.
+
+ARGS is the list of transient arguments of `knessy-shell'.
+The container comes from its `--container=' argument; without it, the
+default container of the pod is used.
+Signals a `user-error' if the resource at point is not a pod."
   (interactive (list (transient-args 'knessy-shell)))
   (let* ((selected-ids (knessy--ids))
          ;; TODO (pgu, 29.05.2026): in principle we could work on multiple pods, just open multiple buffers...
