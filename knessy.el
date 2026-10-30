@@ -221,18 +221,38 @@ time of the last restart, or the amount of restarts."
       (knessy--set-env current-env))
     (display-buffer log-buf)))
 
-(defun knessy-shell-into ()
-  (interactive)
+(defun knessy--shell-read-container (prompt _initial-input _history)
+  "Read a container of the pod at point, with PROMPT.
+With a single container there is nothing to choose, so it is returned as is."
+  (let* ((id (tabulated-list-get-id))
+         (containers (knessy--pod-containers knessy--context
+                                             (knessy--id-ns id)
+                                             (knessy--id-name id))))
+    (if (length< containers 2)
+        (or (car containers) (user-error "Pod has no containers"))
+      (completing-read prompt containers nil t))))
+
+(transient-define-prefix knessy-shell ()
+  "Shell into the pod at point."
+  ["Options"
+   ("-c" "Container" "--container=" :reader knessy--shell-read-container)]
+  ["Actions"
+   ("s" "Shell" knessy-shell-into)])
+
+(defun knessy-shell-into (&optional args)
+  "Shell into the pod at point, in the container chosen in `knessy-shell'."
+  (interactive (list (transient-args 'knessy-shell)))
   (let* ((selected-ids (knessy--ids))
          ;; TODO (pgu, 29.05.2026): in principle we could work on multiple pods, just open multiple buffers...
          (id (first selected-ids))
          (ns (knessy--id-ns id))
          (rt (knessy--id-rt id))
          (name (knessy--id-name id))
+         (container (transient-arg-value "--container=" args))
          (ctx knessy--context))
     (unless (eq 'pod (ht-get knessy--resource-type-str->sym rt))
       (user-error "Can only shell into pods!"))
-    (knessy-exec-vterm-pod ctx ns name)))
+    (knessy-exec-pod ctx ns name container)))
 
 
 (defvar knessy-mode-map
@@ -259,7 +279,7 @@ time of the last restart, or the amount of restarts."
     (define-key map (kbd "[") 'knessy-env-go-back)
     (define-key map (kbd "]") 'knessy-env-go-forward)
     (define-key map (kbd "z") 'knessy-env-history)
-    (define-key map (kbd "s") 'knessy-shell-into)
+    (define-key map (kbd "s") 'knessy-shell)
     map)
   "Keymap for `knessy-mode'.")
 
