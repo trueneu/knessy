@@ -99,16 +99,15 @@ If you're using `display-line-numbers-mode` or `persp-mode`, you may benefit fro
 If you're using `consult`, you can add a buffer source like this:
 ```elisp
 (defvar consult--source-knessy
-  `(
-    :name "Knessy"
-          :narrow ?k
-          :hidden t
-          :category buffer
-          :state ,#'consult--buffer-state
-          :items ,(lambda ()
-                    (consult--buffer-query :mode 'knessy-mode
-                                           :sort 'visibility
-                                           :as #'buffer-name)))
+  `(:name "Knessy"
+    :narrow ?k
+    :hidden t
+    :category buffer
+    :state ,#'consult--buffer-state
+    :items ,(lambda ()
+              (consult--buffer-query :mode 'knessy-mode
+                                     :sort 'visibility
+                                     :as #'buffer-name)))
   "Knessy buffer candidate source for `consult-buffer'.")
 
 (add-to-list 'consult-buffer-sources 'consult--source-knessy)
