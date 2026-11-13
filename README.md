@@ -4,9 +4,7 @@ A k9s-style Kubernetes interface for Emacs.
 
 Heavily inspired by abrochard's [kubel](https://github.com/abrochard/kubel) and [k9s](https://github.com/derailed/k9s) by derailed.
 
-<details>
-
-<summary>Click for pictures!</summary>
+## Pictures!
 
 All namespaced resources in all namespaces:
 ![All namespaced resources in all namespaces](screenshots/knessy-all-resources-all-namespaces.png "All namespaced resources in all namespaces")
@@ -19,9 +17,6 @@ All resources linked to a kube-proxy pod:
 
 History of environment states for quick navigation:
 ![History of environment states for quick navigation](screenshots/knessy-env-history.png "History of environment states for quick navigation")
-
-</details>
-
 
 ## What and why?
 
