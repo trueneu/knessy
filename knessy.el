@@ -37,6 +37,7 @@
 (require 'cl-lib)
 (require 'dash)
 (require 'ht)
+(require 'json)
 (require 's)
 (require 'transient)
 
@@ -998,6 +999,12 @@ kubeconfig file `f' and view `v'."
 (defcustom knessy-temp-file-dir (file-name-concat temporary-file-directory "knessy")
   "Directory to put temporary Knessy files")
 
+(defcustom knessy-edit-use-neat nil
+  "Whether to strip noisy object details with kubectl neat when editing.
+Requires the executable specified by `knessy-kubectl-neat'."
+  :type 'boolean
+  :group 'knessy)
+
 (defun knessy-edit (&optional json?)
   "Edit the resource at point as YAML in a temporary file buffer.
 With prefix argument, JSON? is non-nil, and the resource is edited as
@@ -1039,7 +1046,13 @@ Return value is not meaningful."
     (with-current-buffer file-buf
       (setq buffer-file-coding-system 'prefer-utf-8-unix)
       (knessy--set-env current-env)
-      (knessy--kubectl-get-object-sync ns rt name file-buf (if json? :json :yaml))
+      (knessy--kubectl-get-object-sync ns rt name file-buf
+                                       (if json? :json :yaml)
+                                       knessy-edit-use-neat)
+      (when (and knessy-edit-use-neat json?)
+        (let ((json-encoding-pretty-print t)
+              (json-encoding-default-indentation "    "))
+          (json-pretty-print-buffer)))
       (goto-char (point-min))
       (save-buffer)
       (if json?

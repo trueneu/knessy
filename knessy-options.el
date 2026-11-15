@@ -25,6 +25,12 @@
 (defgroup knessy nil "Customisation group for Knessy."
   :group 'extensions)
 
+(defcustom knessy-kubectl-neat "~/.krew/bin/kubectl-neat"
+  "Path to the kubectl-neat executable used when editing objects.
+Used when `knessy-edit-use-neat' is non-nil."
+  :type 'file
+  :group 'knessy)
+
 (defcustom knessy-default-view-string "default"
   "String depicting default view for a resource-type."
   :type 'string

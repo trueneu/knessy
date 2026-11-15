@@ -77,6 +77,11 @@ To try a change, =load-file= the edited files there; do it only when asked.
 =defcustom= and =defvar= values do not reload once bound, see =agent-notes/gotchas.md=.
 
 * Decisions log
+- =knessy-edit-use-neat= defaults to nil and enables kubectl neat only for editing objects.
+  With it enabled, the object fetch always requests YAML; neat emits YAML for =e= and JSON via =-o json= for =C-u e=.
+  The pipeline uses =knessy-kubectl= to fetch objects and invokes =knessy-kubectl-neat= directly to clean them; other object reads keep their existing behavior.
+  =knessy-kubectl-neat= defaults to =~/.krew/bin/kubectl-neat= and is expanded and shell-quoted before invocation, so it supports home-relative paths and paths containing spaces.
+  Neat emits minified JSON, so JSON edits with neat enabled use Emacs's built-in =json-pretty-print-buffer= before saving and displaying, with four-space indentation like kubectl.
 
 * Notes index
 - =agent-notes/architecture.md=: how the pieces fit together

@@ -698,15 +698,6 @@ The buffer is not killed."
      buf)
     (knessy--kubectl-parse-json-buffer buf)))
 
-;; (defun knessy--kubectl-get-object-sync (name &optional fmt)
-;;   (let ((buf (knessy--utils-make-buffer (generate-new-buffer-name (knessy--utils-kubectl-buffer-name name)))))
-;;     (knessy--shell-exec
-;;      (knessy--kubectl-get-obj-cmd name fmt)
-;;      buf)
-;;     buf))
-
-;; (defun knessy--kubectl-log-sync ())
-
 ;; TODO (pgu, 20.05.2026): this has to be controllable from the transient
 (defun knessy--kubectl-log-object-async (ns resource-type name buf buferr follow? tail all-containers? prefix? container timestamps? knessy-prefix? knessy-prefix-width)
  "Start streaming the logs of one object into BUF and return the process.
@@ -762,15 +753,21 @@ deleted!\" is shown."
     buferr
     (lambda () (message "Object(s) deleted!"))))
 
-(defun knessy--kubectl-get-object-sync (ns rt name buf &optional fmt)
+(defun knessy--kubectl-get-object-sync (ns rt name buf &optional fmt neat?)
  "Get one object synchronously, writing the output into BUF.
 NS is the namespace string, RT the resource type string and NAME the
 object name.
 BUF is the buffer receiving the output.
 FMT is :json, :yaml or nil, as in `knessy--kubectl-get-obj-cmd'.
+If NEAT? is non-nil, fetch YAML and pipe it through `knessy-kubectl-neat',
+using \"-o json\" for JSON output (FMT is :json or nil).
 Return the exit status of the command, as `knessy--shell-exec' does."
   (knessy--shell-exec
-   (knessy--kubectl-get-obj-cmd ns rt name fmt)
+   (concat (knessy--kubectl-get-obj-cmd ns rt name (if neat? :yaml fmt))
+           (when neat?
+             (concat " | " (shell-quote-argument
+                              (expand-file-name knessy-kubectl-neat))
+                     (when (or (eq fmt :json) (null fmt)) " -o json"))))
    buf))
 
 ;; TODO (pgu, 20.05.2026): lord why this creates its own buffer but the others get it as a param?

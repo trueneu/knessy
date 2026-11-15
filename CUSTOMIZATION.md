@@ -29,6 +29,15 @@ These options, all defaulting to `nil`, make Knessy reset them on a change:
 | `knessy-debug-image` | `"ubuntu:latest"` | Debug container image |
 | `knessy-debug-shell` | `"/bin/bash"` | Debug container shell. |
 
+### Editing objects
+
+| Option | Default | What it does |
+|--------|---------|--------------|
+| `knessy-edit-use-neat` | `nil` | Strip noisy details with the kubectl neat plugin when editing with `e`. Requires the plugin to be installed. |
+| `knessy-kubectl-neat` | `"~/.krew/bin/kubectl-neat"` | Path to the kubectl-neat executable. |
+
+(see [kubectl-neat](https://github.com/itaysk/kubectl-neat) GitHub repo for more information)
+
 ### Display
 
 | Option | Default | What it does |
